@@ -4,7 +4,7 @@ Open source webhook delivery with durable PostgreSQL queues, signed requests, an
 
 ## Development status
 
-The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing and an outbound HTTP transport that blocks non-public destinations. The delivery API and worker are under development; this revision is not a production release.
+The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, and transactional event ingestion with idempotent fan-out. The delivery API and worker are under development; this revision is not a production release.
 
 ## Architecture
 
