@@ -2,6 +2,14 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import ipaddr from 'ipaddr.js';
 
+/** The destination is not allowed; retrying will not help. */
+export class DestinationPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DestinationPolicyError';
+  }
+}
+
 export interface Address {
   address: string;
   family: number;
@@ -45,10 +53,10 @@ export async function resolveDestination(
     : await resolver(hostname);
 
   if (addresses.length === 0 || addresses.some((entry) => !ipaddr.isValid(entry.address))) {
-    throw new Error('Destination resolution failed');
+    throw new DestinationPolicyError('Destination resolution returned no valid address');
   }
   if (!isDemo && addresses.some((entry) => !isPublicAddress(entry.address))) {
-    throw new Error('Non-public destination rejected');
+    throw new DestinationPolicyError('Non-public destination rejected');
   }
 
   const [pinned] = addresses as [Address, ...Address[]];
@@ -65,22 +73,22 @@ export function validateDestinationUrl(rawUrl: string, demoOrigin?: string): URL
   try {
     url = new URL(rawUrl);
   } catch {
-    throw new Error('Destination rejected');
+    throw new DestinationPolicyError('Destination rejected');
   }
 
   const isDemo = isDemoOrigin(url, demoOrigin);
   const hasCredentials = url.username !== '' || url.password !== '';
   const allowedProtocol = url.protocol === 'https:' || (isDemo && url.protocol === 'http:');
   if (hasCredentials || url.hash !== '' || !allowedProtocol) {
-    throw new Error('Destination rejected');
+    throw new DestinationPolicyError('Destination rejected');
   }
 
   const hostname = unbracket(url.hostname);
   if (!isDemo && isIP(hostname) !== 0 && !isPublicAddress(hostname)) {
-    throw new Error('Non-public destination rejected');
+    throw new DestinationPolicyError('Non-public destination rejected');
   }
   if (!isDemo && (hostname === 'localhost' || hostname.endsWith('.localhost'))) {
-    throw new Error('Non-public destination rejected');
+    throw new DestinationPolicyError('Non-public destination rejected');
   }
   return url;
 }

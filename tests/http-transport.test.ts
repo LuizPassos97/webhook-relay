@@ -115,3 +115,27 @@ describe('sendWebhook', () => {
     expect(lookups).toBe(1);
   });
 });
+
+describe('destination failures', () => {
+  const base = {
+    body: '{}',
+    secret: SECRET,
+    eventId: 'event',
+    deliveryId: 'delivery',
+    timeoutMs: 500,
+  };
+
+  it('reports a policy violation as rejected', async () => {
+    const outcome = await sendWebhook({ ...base, url: 'https://10.0.0.1/hook' });
+    expect(outcome.kind).toBe('rejected');
+  });
+
+  it('reports a DNS failure as a retryable network error', async () => {
+    const outcome = await sendWebhook({
+      ...base,
+      url: 'https://missing.example/hook',
+      resolver: () => Promise.reject(new Error('ENOTFOUND')),
+    });
+    expect(outcome.kind).toBe('network');
+  });
+});

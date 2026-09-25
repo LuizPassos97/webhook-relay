@@ -1,8 +1,10 @@
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { LookupFunction } from 'node:net';
+import type { AttemptOutcome } from '../../../packages/core/src/retry-policy.js';
 import { sign } from '../../../packages/core/src/signatures.js';
 import {
+  DestinationPolicyError,
   resolveDestination,
   type PinnedDestination,
   type Resolver,
@@ -24,12 +26,7 @@ export interface SendInput {
   resolver?: Resolver;
 }
 
-export interface AttemptOutcome {
-  kind: 'response' | 'network' | 'timeout' | 'rejected';
-  status?: number;
-  durationMs: number;
-  excerpt?: string;
-}
+export type { AttemptOutcome };
 
 /**
  * Delivers one signed webhook request.
@@ -55,8 +52,10 @@ export async function sendWebhook(input: SendInput): Promise<AttemptOutcome> {
     let destination: PinnedDestination;
     try {
       destination = await resolveDestination(input.url, input.resolver, input.demoOrigin);
-    } catch {
-      return { kind: 'rejected', durationMs: elapsed() };
+    } catch (error) {
+      // A policy violation is permanent; a failed DNS lookup may succeed on a later attempt.
+      const kind = error instanceof DestinationPolicyError ? 'rejected' : 'network';
+      return { kind, durationMs: elapsed() };
     }
 
     if (controller.signal.aborted) {
