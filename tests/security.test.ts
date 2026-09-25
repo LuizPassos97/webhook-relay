@@ -1,27 +1,60 @@
-import { expect, it } from 'vitest';
 import { createHmac } from 'node:crypto';
-import { issueKey, hashKey } from '../packages/core/src/credentials.js';
-import { encryptSecret, decryptSecret } from '../packages/core/src/secrets.js';
+import { describe, expect, it } from 'vitest';
+import { hashKey, issueKey } from '../packages/core/src/credentials.js';
+import { decryptSecret, encryptSecret } from '../packages/core/src/secrets.js';
 import { sign, verify } from '../packages/core/src/signatures.js';
-it('creates independent unpredictable tokens and one-way hashes', () => {
-  const a=issueKey(), b=issueKey();
-  expect(a.token).not.toBe(b.token); expect(a.token.length).toBeGreaterThan(40);
-  expect(a.hash).toBe(hashKey(a.token)); expect(a.hash).not.toContain(a.token);
+
+describe('API keys', () => {
+  it('issues independent, unpredictable tokens with one-way hashes', () => {
+    const first = issueKey();
+    const second = issueKey();
+
+    expect(first.token).not.toBe(second.token);
+    expect(first.token.length).toBeGreaterThan(40);
+    expect(first.hash).toBe(hashKey(first.token));
+    expect(first.hash).not.toContain(first.token);
+  });
 });
-it('encrypts independently and rejects tampered ciphertext', () => {
-  const key=Buffer.alloc(32,7), a=encryptSecret('secret-value',key);
-  expect(a).not.toContain('secret-value'); expect(a).not.toBe(encryptSecret('secret-value',key));
-  expect(decryptSecret(a,key)).toBe('secret-value');
-  expect(()=>decryptSecret(a,Buffer.alloc(32,8))).toThrow();
-  expect(()=>decryptSecret(a.slice(0,-5)+'aaaaa',key)).toThrow();
-  expect(()=>decryptSecret('invalid',key)).toThrow();
+
+describe('secret encryption', () => {
+  const masterKey = Buffer.alloc(32, 7);
+
+  it('round-trips and uses a fresh nonce for every encryption', () => {
+    const encrypted = encryptSecret('secret-value', masterKey);
+
+    expect(encrypted).not.toContain('secret-value');
+    expect(encrypted).not.toBe(encryptSecret('secret-value', masterKey));
+    expect(decryptSecret(encrypted, masterKey)).toBe('secret-value');
+  });
+
+  it('rejects a wrong key, tampered ciphertext and malformed input', () => {
+    const encrypted = encryptSecret('secret-value', masterKey);
+    const tampered = encrypted.slice(0, -5) + 'aaaaa';
+
+    expect(() => decryptSecret(encrypted, Buffer.alloc(32, 8))).toThrow();
+    expect(() => decryptSecret(tampered, masterKey)).toThrow();
+    expect(() => decryptSecret('invalid', masterKey)).toThrow();
+  });
 });
-it('signs exact body bytes and rejects changed content and stale timestamps', () => {
-  const body=Buffer.from('{"x":1}'), signature=sign(body,1000,'secret');
-  expect(signature).toBe(createHmac('sha256','secret').update('1000.{"x":1}').digest('hex'));
-  expect(verify(body,1000,signature,'secret',1001)).toBe(true);
-  expect(verify(Buffer.from('{}'),1000,signature,'secret',1001)).toBe(false);
-  expect(verify(body,1000,signature,'secret',1301)).toBe(false);
-  expect(verify(body,1000,signature,'secret',600)).toBe(false);
-  expect(verify(body,1000,'zz','secret',1000)).toBe(false);
+
+describe('webhook signatures', () => {
+  const body = Buffer.from('{"x":1}');
+  const timestamp = 1000;
+  const signature = sign(body, timestamp, 'secret');
+
+  it('signs "<timestamp>.<body>" with HMAC-SHA256', () => {
+    const expected = createHmac('sha256', 'secret').update('1000.{"x":1}').digest('hex');
+    expect(signature).toBe(expected);
+  });
+
+  it('accepts the exact body within the tolerance window', () => {
+    expect(verify(body, timestamp, signature, 'secret', timestamp + 1)).toBe(true);
+  });
+
+  it('rejects changed content, stale or future timestamps and malformed signatures', () => {
+    expect(verify(Buffer.from('{}'), timestamp, signature, 'secret', timestamp + 1)).toBe(false);
+    expect(verify(body, timestamp, signature, 'secret', timestamp + 301)).toBe(false);
+    expect(verify(body, timestamp, signature, 'secret', timestamp - 400)).toBe(false);
+    expect(verify(body, timestamp, 'zz', 'secret', timestamp)).toBe(false);
+  });
 });

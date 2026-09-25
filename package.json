@@ -7,15 +7,18 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint . && prettier --check .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "migrate": "tsx scripts/migrate.ts",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "start:api": "tsx apps/api/src/main.ts",
-    "start:worker": "tsx apps/worker/src/main.ts"
+    "start:worker": "tsx apps/worker/src/main.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint:fix": "eslint . --fix && prettier --write ."
   },
   "dependencies": {
     "@fastify/swagger": "^9.9.0",
@@ -33,6 +36,9 @@
     "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "^5.0.2",
     "eslint": "^10.11.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.12.0",
+    "prettier": "3.9.9",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.1",

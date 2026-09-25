@@ -4,7 +4,7 @@ Open source webhook delivery with durable PostgreSQL queues, signed requests, an
 
 ## Development status
 
-The initial foundation provides validated configuration, transactional database migrations, and tests against real PostgreSQL. The delivery API and worker are under development; this revision is not a production release.
+The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing and an outbound HTTP transport that blocks non-public destinations. The delivery API and worker are under development; this revision is not a production release.
 
 ## Architecture
 
@@ -34,6 +34,8 @@ npm run lint
 npm run build
 npm run test:coverage
 ```
+
+`npm run lint` runs ESLint with type-aware rules and checks formatting with Prettier. Run `npm run lint:fix` to apply automatic fixes and formatting.
 
 Integration tests use a disposable local database at port 55432; set `TEST_DATABASE_URL` to override. Never point tests at an installation containing real data.
 

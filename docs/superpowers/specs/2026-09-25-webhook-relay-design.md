@@ -60,15 +60,15 @@ The delivery guarantee is **at least once**, not exactly once. Consumers must us
 
 ## 5. Initial HTTP contract
 
-| Operation | Authorization | Result |
-|---|---|---|
-| `POST /v1/projects` | Operator key | Create a project |
-| `POST /v1/projects/{id}/keys` | Operator key | Create a project key; reveal its secret once |
-| `POST /v1/endpoints`, `GET /v1/endpoints` | Project manage key | Create and list destinations and subscriptions |
-| `POST /v1/events` | Project publish key | Return `202`, `eventId`, and delivery IDs |
-| `GET /v1/events/{id}` | Project manage key | Read event and delivery states |
-| `GET /v1/deliveries/{id}` | Project manage key | Read state and attempt history |
-| `POST /v1/deliveries/{id}/replay` | Project manage key | Schedule a new attempt cycle for a terminal delivery |
+| Operation                                 | Authorization       | Result                                               |
+| ----------------------------------------- | ------------------- | ---------------------------------------------------- |
+| `POST /v1/projects`                       | Operator key        | Create a project                                     |
+| `POST /v1/projects/{id}/keys`             | Operator key        | Create a project key; reveal its secret once         |
+| `POST /v1/endpoints`, `GET /v1/endpoints` | Project manage key  | Create and list destinations and subscriptions       |
+| `POST /v1/events`                         | Project publish key | Return `202`, `eventId`, and delivery IDs            |
+| `GET /v1/events/{id}`                     | Project manage key  | Read event and delivery states                       |
+| `GET /v1/deliveries/{id}`                 | Project manage key  | Read state and attempt history                       |
+| `POST /v1/deliveries/{id}/replay`         | Project manage key  | Schedule a new attempt cycle for a terminal delivery |
 
 Publish and manage keys identify the project; `POST /v1/events` does not accept a client-controlled project ID. Publish the OpenAPI schema in the repository and serve it from the API.
 

@@ -84,8 +84,7 @@ CREATE TABLE schema_migrations (
 ```ts
 expect(verify(body, timestamp, signature, secret, timestamp + 301)).toBe(false);
 expect(() => decryptSecret(tamperedCiphertext, masterKey)).toThrow();
-await expect(resolveDestination('https://example.test', privateResolver, policy))
-  .rejects.toThrow();
+await expect(resolveDestination('https://example.test', privateResolver, policy)).rejects.toThrow();
 expect(connectionOptions.lookup).toBe(pinnedLookup);
 expect(connectionOptions.servername).toBe('example.test');
 ```
@@ -95,7 +94,10 @@ expect(connectionOptions.servername).toBe('example.test');
 
 ```ts
 const signature = createHmac('sha256', secret)
-  .update(String(timestamp)).update('.').update(body).digest('hex');
+  .update(String(timestamp))
+  .update('.')
+  .update(body)
+  .digest('hex');
 ```
 
 - [ ] Re-run tests and inspect request logging for secret or payload exposure.
@@ -111,7 +113,7 @@ const signature = createHmac('sha256', secret)
 
 ```ts
 const results = await Promise.all(Array.from({ length: 20 }, () => publish(input)));
-expect(new Set(results.map(result => result.eventId)).size).toBe(1);
+expect(new Set(results.map((result) => result.eventId)).size).toBe(1);
 expect(await deliveryCountForEvent(pool, results[0].eventId)).toBe(2);
 await expect(publish({ ...input, data: { changed: true } })).rejects.toMatchObject({ status: 409 });
 ```
@@ -137,9 +139,22 @@ ON CONFLICT (project_id, idempotency_key) DO NOTHING;
 - [ ] Test every specified route with valid/missing credentials, wrong permission, cross-project IDs, malformed UUIDs, oversized bodies, unsupported fields, limited pagination and rate limits. Cover replay of active and terminal deliveries.
 
 ```ts
-const response = await app.inject({ method: 'GET', url: `/v1/events/${otherProjectEventId}`, headers: manageHeaders });
+const response = await app.inject({
+  method: 'GET',
+  url: `/v1/events/${otherProjectEventId}`,
+  headers: manageHeaders,
+});
 expect(response.statusCode).toBe(404);
-expect((await app.inject({ method: 'POST', url: '/v1/events', headers: publishHeaders, payload: validEvent })).statusCode).toBe(202);
+expect(
+  (
+    await app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: publishHeaders,
+      payload: validEvent,
+    })
+  ).statusCode,
+).toBe(202);
 ```
 
 - [ ] Run `npm test -- tests/integration/api.test.ts` against a clean database and inspect failures.
@@ -161,8 +176,11 @@ return reply.code(202).send({ eventId: event.id, deliveryIds: event.deliveryIds 
 - [ ] Test all status classes, deterministic jitter, five-attempt exhaustion, bounded concurrency, lease expiry, stale completion, replay cycles and forced worker termination after the receiver responds.
 
 ```ts
-const [left, right] = await Promise.all([claimDeliveries(pool, 10, leaseMs), claimDeliveries(pool, 10, leaseMs)]);
-expect(new Set([...left, ...right].map(x => x.id)).size).toBe(left.length + right.length);
+const [left, right] = await Promise.all([
+  claimDeliveries(pool, 10, leaseMs),
+  claimDeliveries(pool, 10, leaseMs),
+]);
+expect(new Set([...left, ...right].map((x) => x.id)).size).toBe(left.length + right.length);
 expect(await finishAttempt(pool, expiredClaim, successOutcome)).toBe(false);
 ```
 
