@@ -73,6 +73,26 @@ Telemetry never contains event payloads, secrets, API keys or project IDs. Metri
 
 Every worker deletes events older than `RETENTION_DAYS` once per hour, together with their deliveries, attempts and replay audit records. Events that still have a pending or in-flight delivery are kept until it finishes. Deletion runs in batches of 500 events per transaction, so it never blocks the delivery queue for long.
 
+## Backups and master key
+
+Back up two things, separately:
+
+1. **The database**, with regular PostgreSQL tools (`pg_dump` for small installations, or base backups with WAL archiving for point-in-time recovery). It holds events, deliveries, attempt history, hashed API keys and encrypted endpoint secrets.
+2. **The master key** (`MASTER_KEY` or the file behind `MASTER_KEY_FILE`), for example in a password manager or secret store. Never store it next to the database backup: together they reveal every endpoint secret.
+
+To restore, recreate the database from the backup, start the API and worker with the **same** master key, and run `npm run migrate` if the restored backup is older than the application version.
+
+If the master key is lost, stored endpoint secrets cannot be decrypted and deliveries to existing endpoints fail with `Delivery attempt failed unexpectedly`. Recovery: start with a new master key, recreate each endpoint through the API (which issues a new signing secret), and give the new secrets to the consumers. Events, attempt history and API keys are unaffected.
+
+## Upgrades
+
+1. Read the [changelog](../CHANGELOG.md) for breaking changes and new settings.
+2. Back up the database.
+3. Apply migrations with the new version: `npm run migrate`. Migrations run in one transaction under an advisory lock, so a failure leaves the schema unchanged, and concurrent runs apply each migration once. A migration file edited after release is rejected by checksum.
+4. Restart API and worker processes. Workers finish in-flight deliveries on `SIGTERM`; deliveries interrupted by a forced stop are recovered when their lease expires.
+
+Migrations only add backward-compatible changes within a minor version, so old and new processes can run side by side during a rolling restart.
+
 ## Failure demo
 
 The demo shows a successful delivery, retries after errors and a timeout, an exhausted delivery that succeeds after a replay, and a consumer rejecting a tampered request. With PostgreSQL running (`docker compose up -d postgres`):
