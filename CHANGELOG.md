@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-25
+
+First release.
+
 ### Added
 
 - Project-scoped HTTP API with operator, `manage` and `publish` keys, OpenAPI document and per-project rate limiting shared across API processes.
@@ -13,3 +17,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - Health checks, OpenTelemetry traces linking each publishing request to its delivery attempts, and delivery metrics.
 - Retention cleanup, a local failure demo with a sample receiver, a reproducible benchmark and operational documentation.
 - Non-root API and worker images for `linux/amd64` and `linux/arm64`, a production Compose file with file-based secrets, CI on every pull request and a release workflow that smoke tests the exact images before publishing them to GHCR.
+
+[Unreleased]: https://github.com/LuizPassos97/webhook-relay/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/LuizPassos97/webhook-relay/releases/tag/v0.1.0
