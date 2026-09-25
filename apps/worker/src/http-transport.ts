@@ -80,11 +80,13 @@ function postToDestination(
   const body = Buffer.from(input.body);
   const timestamp = Math.floor(Date.now() / 1000);
 
-  // Always answer with the address validated by the destination policy. The URL still
-  // carries the hostname, so the Host header, SNI and certificate checks use the real name.
+  // Answer only with addresses validated by the destination policy, never a fresh DNS lookup.
+  // Node requests all addresses to try them in turn (Happy Eyeballs), so a host whose first
+  // address is unreachable (for example IPv6 without IPv6 connectivity) still works.
+  // The URL keeps the hostname, so the Host header, SNI and certificate checks use the real name.
   const pinnedLookup: LookupFunction = (_hostname, options, callback) => {
     if (options.all) {
-      callback(null, [{ address: destination.address, family: destination.family }]);
+      callback(null, destination.addresses);
     } else {
       callback(null, destination.address, destination.family);
     }
@@ -99,7 +101,6 @@ function postToDestination(
         method: 'POST',
         signal,
         agent: false, // a fresh connection per attempt, so no socket is reused across destinations
-        family: destination.family,
         lookup: pinnedLookup,
         headers: {
           'content-type': 'application/json',

@@ -7,15 +7,20 @@ import Fastify, {
 import type { Pool } from 'pg';
 import type { Config } from '../../../packages/core/src/config.js';
 import { AppError } from '../../../packages/core/src/errors.js';
+import type { ApiMetrics } from '../../../packages/core/src/telemetry.js';
+import { registerObservability } from './observability.js';
 import { deliveryRoutes } from './routes/deliveries.js';
 import { endpointRoutes } from './routes/endpoints.js';
 import { eventRoutes } from './routes/events.js';
+import { healthRoutes } from './routes/health.js';
 import { projectRoutes } from './routes/projects.js';
 
 export interface ApiDependencies {
   pool: Pool;
   config: Config;
   logger?: FastifyServerOptions['logger'];
+  /** Defaults to instruments on the global meter provider. */
+  metrics?: ApiMetrics;
 }
 
 // Default for routes without their own limit; publishing events raises it.
@@ -46,6 +51,8 @@ export async function buildApp(deps: ApiDependencies): Promise<FastifyInstance> 
     },
   });
 
+  registerObservability(app, deps.metrics);
+
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error instanceof AppError) {
       return reply.code(error.status).send({ error: error.code, message: error.message });
@@ -64,6 +71,7 @@ export async function buildApp(deps: ApiDependencies): Promise<FastifyInstance> 
     return reply.code(500).send({ error: 'internal_error', message: 'Internal server error' });
   });
 
+  healthRoutes(app, deps);
   projectRoutes(app, deps);
   endpointRoutes(app, deps);
   eventRoutes(app, deps);

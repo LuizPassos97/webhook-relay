@@ -139,3 +139,26 @@ describe('destination failures', () => {
     expect(outcome.kind).toBe('network');
   });
 });
+
+describe('multiple validated addresses', () => {
+  it('falls back to the next validated address when the first refuses the connection', async () => {
+    // The test server only listens on IPv4, so the IPv6 loopback answer is refused.
+    const fakeOrigin = origin.replace('127.0.0.1', 'dual-stack.test');
+    const outcome = await sendWebhook({
+      url: `${fakeOrigin}/signed`,
+      demoOrigin: fakeOrigin,
+      body: '{}',
+      secret: SECRET,
+      eventId: 'event',
+      deliveryId: 'delivery',
+      timeoutMs: 1000,
+      resolver: () =>
+        Promise.resolve([
+          { address: '::1', family: 6 },
+          { address: '127.0.0.1', family: 4 },
+        ]),
+    });
+
+    expect(outcome).toMatchObject({ kind: 'response', status: 200 });
+  });
+});

@@ -1,0 +1,20 @@
+# Local-only OpenTelemetry collector: receives OTLP over HTTP and prints traces and
+# metrics to its own log (`docker compose logs otel-collector`). Nothing leaves the machine.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]

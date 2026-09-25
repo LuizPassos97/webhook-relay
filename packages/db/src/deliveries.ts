@@ -149,6 +149,8 @@ export interface ClaimedDelivery {
   encryptedSecret: string;
   /** Exact envelope bytes to sign and send. */
   body: string;
+  /** W3C traceparent of the publishing request, if it was traced. */
+  traceParent: string | null;
 }
 
 /**
@@ -175,6 +177,7 @@ export async function claimDeliveries(
     url: string;
     secret: string;
     body: string;
+    trace_parent: string | null;
   }>(
     `WITH due AS (
        SELECT id FROM deliveries
@@ -198,7 +201,7 @@ export async function claimDeliveries(
        INSERT INTO delivery_attempts (id, delivery_id, cycle, number, lease_token)
        SELECT gen_random_uuid(), id, cycle, attempt_count, lease_token FROM claimed
      )
-     SELECT c.*, endpoint.url, endpoint.secret, event.body
+     SELECT c.*, endpoint.url, endpoint.secret, event.body, event.trace_parent
      FROM claimed AS c
      JOIN endpoints AS endpoint ON endpoint.id = c.endpoint_id
      JOIN events AS event ON event.id = c.event_id`,
@@ -216,6 +219,7 @@ export async function claimDeliveries(
     url: row.url,
     encryptedSecret: row.secret,
     body: row.body,
+    traceParent: row.trace_parent,
   }));
 }
 
@@ -303,4 +307,17 @@ export async function recoverExpiredLeases(pool: Pool, maxAttempts: number): Pro
     [maxAttempts],
   );
   return result.rows[0]?.recovered ?? 0;
+}
+
+/** Seconds the oldest due, unclaimed delivery has been waiting, or null when none is due. */
+export async function oldestDueAgeSeconds(pool: Pool): Promise<number | null> {
+  // Ordered by the partial index on due deliveries, so this reads a single index entry.
+  const result = await pool.query<{ age: number }>(
+    `SELECT extract(epoch FROM now() - next_attempt_at)::float8 AS age
+     FROM deliveries
+     WHERE state = 'pending' AND next_attempt_at <= now()
+     ORDER BY next_attempt_at, id
+     LIMIT 1`,
+  );
+  return result.rows[0]?.age ?? null;
 }

@@ -17,7 +17,7 @@ it('applies migrations once under concurrent startup', async () => {
   await Promise.all([migrate(pool), migrate(pool)]);
 
   const applied = await pool.query('SELECT version FROM schema_migrations');
-  expect(applied.rows).toHaveLength(1);
+  expect(applied.rows).toHaveLength(2);
 
   const tables = await pool.query<{ table_name: string }>(
     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",

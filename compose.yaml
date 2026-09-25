@@ -14,5 +14,15 @@ services:
       interval: 2s
       timeout: 2s
       retries: 20
+  # Optional: `docker compose --profile observability up -d otel-collector`, then start the
+  # API and worker with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318.
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector:0.149.0
+    command: ['--config=/etc/otelcol/config.yaml']
+    volumes:
+      - ./deploy/compose/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - '127.0.0.1:4318:4318'
 volumes:
   relay-data:
