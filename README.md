@@ -6,7 +6,7 @@ Your application publishes an event once; Webhook Relay stores it, fans it out t
 
 ## Status
 
-Version 0.1 is feature-complete for the scope in the [design specification](docs/superpowers/specs/2026-09-25-webhook-relay-design.md): project-scoped API, transactional idempotent ingestion, leased delivery workers with crash recovery, outbound network protection, OpenTelemetry, retention and a local failure demo. Container images and automated releases are not published yet.
+Version 0.1 is feature-complete for the scope in the [design specification](docs/superpowers/specs/2026-09-25-webhook-relay-design.md): project-scoped API, transactional idempotent ingestion, leased delivery workers with crash recovery, outbound network protection, OpenTelemetry, retention, a local failure demo and verified multi-platform container images.
 
 ## Architecture
 
@@ -23,9 +23,15 @@ flowchart LR
 - **Workers** claim due deliveries with `FOR UPDATE SKIP LOCKED` and a time-limited lease, send the request outside any transaction, and record the result only if they still own the lease.
 - **PostgreSQL** is both the system of record and the queue; there is no separate broker. See [ADR 0001](docs/adr/0001-postgresql-queue.md).
 
+## Install
+
+Released versions are published as container images for `linux/amd64` and `linux/arm64`. Follow [Container installation](docs/operations.md#container-installation) to run a release with Docker Compose, persistent storage and file-based secrets.
+
+To see retries, timeouts, replay and signature checks without writing any code, run the [failure demo](docs/operations.md#failure-demo); it only needs Docker.
+
 ## Quickstart
 
-Requirements: Node.js 24 LTS, npm, Docker (or another free container runtime), `curl` and `jq`.
+To run from source instead. Requirements: Node.js 24 LTS, npm, Docker (or another free container runtime), `curl` and `jq`.
 
 ```sh
 npm ci
@@ -146,9 +152,13 @@ Integration tests create and drop their own temporary databases on the local Pos
 | `scripts`            | Bootstrap, migrations, OpenAPI generation, demo and benchmark |
 | `tests`              | Unit, integration (real PostgreSQL) and end-to-end tests      |
 
+## Releases
+
+Pushing a `vX.Y.Z` tag on `main` runs [the release workflow](.github/workflows/release.yml): it checks that the tag matches `package.json`, reruns every CI check on the tagged commit, builds the images natively on amd64 and arm64 runners, smoke tests those exact images with both Compose files, and only then publishes them to GHCR with their digests in the GitHub release. Multi-platform tags are created only after both architectures pass.
+
 ## Cost
 
-Development, tests and the demo need no paid service, account or credit card. No hosted instance is provided: you run it on your own infrastructure.
+Development, tests, CI, image publishing and the demo need no paid service, account or credit card. No hosted instance is provided: you run it on your own infrastructure.
 
 ## License
 

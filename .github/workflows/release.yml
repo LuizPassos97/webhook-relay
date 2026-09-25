@@ -1,0 +1,164 @@
+name: Release
+
+# Publishes images for a version tag such as v0.1.0. Nothing is published unless the tag
+# points to a commit on main, matches package.json, and passes every CI check and both
+# architecture smoke tests on that exact commit.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-tag:
+    name: Check tag
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tag matches package.json and points to a commit on main
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $package_version"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points to a commit that is not on main"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify
+    needs: check-tag
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish ${{ matrix.platform }}
+    needs: [check-tag, verify]
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    # The only job that can write packages.
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.check-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Set image prefix
+        run: echo "PREFIX=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/webhook-relay" >> "$GITHUB_ENV"
+      - name: Build the exact images to publish
+        run: |
+          for target in api worker; do
+            docker build --target "$target" \
+              --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
+              --tag "$PREFIX-$target:$VERSION-${{ matrix.arch }}" .
+          done
+      - name: Smoke test those images
+        run: npm run smoke:release -- --prefix "$PREFIX" --tag "$VERSION-${{ matrix.arch }}"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push architecture-specific images
+        run: |
+          for target in api worker; do
+            docker push "$PREFIX-$target:$VERSION-${{ matrix.arch }}"
+          done
+
+  manifest:
+    name: Publish multi-platform tags
+    needs: [check-tag, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.check-tag.outputs.version }}
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Combine amd64 and arm64 images under the version tags
+        run: |
+          prefix="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/webhook-relay"
+          minor="${VERSION%.*}"
+          for target in api worker; do
+            docker buildx imagetools create \
+              --tag "$prefix-$target:$VERSION" \
+              --tag "$prefix-$target:$minor" \
+              --tag "$prefix-$target:latest" \
+              "$prefix-$target:$VERSION-amd64" \
+              "$prefix-$target:$VERSION-arm64"
+          done
+      - name: Record image digests
+        id: digests
+        run: |
+          prefix="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/webhook-relay"
+          {
+            echo 'digests<<EOF'
+            for target in api worker; do
+              digest="$(docker buildx imagetools inspect "$prefix-$target:$VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+              echo "$prefix-$target:$VERSION@$digest"
+            done
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  github-release:
+    name: Create GitHub release
+    needs: [check-tag, manifest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create release with image digests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIGESTS: ${{ needs.manifest.outputs.digests }}
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          {
+            echo "Container images for linux/amd64 and linux/arm64, verified by the CI and smoke tests of this tag:"
+            echo
+            echo '```'
+            echo "$DIGESTS"
+            echo '```'
+            echo
+            echo "Install with deploy/compose/compose.release.yaml and WEBHOOK_RELAY_VERSION=$VERSION. See CHANGELOG.md for changes."
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

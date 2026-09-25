@@ -27,10 +27,7 @@ const DEMO_ORIGIN_PATTERN = /^http:\/\/(demo-receiver|localhost|127\.0\.0\.1):[0
 export function readConfig(env: NodeJS.ProcessEnv): Config {
   const production = env.NODE_ENV === 'production';
 
-  const databaseUrl = readSecret(env, 'DATABASE_URL');
-  if (!databaseUrl || !isPostgresUrl(databaseUrl)) {
-    throw new Error('DATABASE_URL must be a PostgreSQL URL');
-  }
+  const databaseUrl = readDatabaseUrl(env);
 
   const masterKey = readSecret(env, 'MASTER_KEY');
   if (!masterKey || !/^[a-f0-9]{64}$/i.test(masterKey)) {
@@ -73,6 +70,18 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
     retryScale,
     pollIntervalMs: readInteger(env, 'WORKER_POLL_MS', 1000, 60000),
   };
+}
+
+/**
+ * Reads and validates the database URL from `DATABASE_URL_FILE` or `DATABASE_URL`.
+ * Used by the services and by maintenance scripts that need no other settings.
+ */
+export function readDatabaseUrl(env: NodeJS.ProcessEnv): string {
+  const databaseUrl = readSecret(env, 'DATABASE_URL');
+  if (!databaseUrl || !isPostgresUrl(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL URL');
+  }
+  return databaseUrl;
 }
 
 /**

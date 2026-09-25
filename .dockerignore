@@ -1,0 +1,16 @@
+# Only sources, manifests and migrations are needed to build the images.
+.git
+.github
+.superpowers
+.vscode
+node_modules
+dist
+coverage
+docs
+tests
+secrets
+deploy
+*.log
+.env
+.env.*
+benchmark.json
