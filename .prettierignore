@@ -3,3 +3,4 @@ coverage/
 node_modules/
 .superpowers/
 package-lock.json
+docs/openapi.json

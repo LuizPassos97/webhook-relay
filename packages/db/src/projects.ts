@@ -17,3 +17,8 @@ export async function createProject(client: PoolClient, name: string): Promise<P
 
   return { id: row.id, name: row.name, createdAt: row.created_at };
 }
+
+export async function projectExists(client: PoolClient, id: string): Promise<boolean> {
+  const result = await client.query('SELECT 1 FROM projects WHERE id = $1', [id]);
+  return result.rowCount === 1;
+}

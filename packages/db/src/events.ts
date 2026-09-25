@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { PoolClient } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { conflict } from '../../core/src/errors.js';
 import {
   buildEnvelope,
@@ -94,4 +94,72 @@ async function findExistingEvent(
     [projectId, event.id],
   );
   return { eventId: event.id, deliveryIds: deliveries.rows.map((row) => row.id), created: false };
+}
+
+export type DeliveryState = 'pending' | 'processing' | 'succeeded' | 'failed';
+
+export interface DeliverySummary {
+  id: string;
+  endpointId: string;
+  state: DeliveryState;
+  cycle: number;
+  attemptCount: number;
+  nextAttemptAt: Date;
+  completedAt: Date | null;
+}
+
+export interface EventDetails {
+  id: string;
+  type: string;
+  createdAt: string;
+  data: unknown;
+  deliveries: DeliverySummary[];
+}
+
+/** Reads an event and its delivery states. Returns null if it does not exist in this project. */
+export async function getEvent(
+  pool: Pool,
+  projectId: string,
+  eventId: string,
+): Promise<EventDetails | null> {
+  const event = await pool.query<{ body: string }>(
+    'SELECT body FROM events WHERE project_id = $1 AND id = $2',
+    [projectId, eventId],
+  );
+  const row = event.rows[0];
+  if (!row) return null;
+
+  const deliveries = await pool.query<{
+    id: string;
+    endpoint_id: string;
+    state: DeliveryState;
+    cycle: number;
+    attempt_count: number;
+    next_attempt_at: Date;
+    completed_at: Date | null;
+  }>(
+    `SELECT id, endpoint_id, state, cycle, attempt_count, next_attempt_at, completed_at
+     FROM deliveries
+     WHERE project_id = $1 AND event_id = $2
+     ORDER BY id`,
+    [projectId, eventId],
+  );
+
+  // The stored envelope is the source of truth for what receivers get.
+  const envelope = JSON.parse(row.body) as Omit<EventDetails, 'deliveries'>;
+  return {
+    id: envelope.id,
+    type: envelope.type,
+    createdAt: envelope.createdAt,
+    data: envelope.data,
+    deliveries: deliveries.rows.map((delivery) => ({
+      id: delivery.id,
+      endpointId: delivery.endpoint_id,
+      state: delivery.state,
+      cycle: delivery.cycle,
+      attemptCount: delivery.attempt_count,
+      nextAttemptAt: delivery.next_attempt_at,
+      completedAt: delivery.completed_at,
+    })),
+  };
 }

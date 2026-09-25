@@ -4,7 +4,7 @@ Open source webhook delivery with durable PostgreSQL queues, signed requests, an
 
 ## Development status
 
-The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, and transactional event ingestion with idempotent fan-out. The delivery API and worker are under development; this revision is not a production release.
+The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, transactional event ingestion with idempotent fan-out, and an authenticated, project-scoped HTTP API. The delivery worker is under development; this revision is not a production release.
 
 ## Architecture
 
@@ -20,10 +20,18 @@ The API accepts events transactionally. A separate worker claims due deliveries 
 ```sh
 npm ci
 docker compose up -d postgres
-DATABASE_URL=postgres://relay:relay_local@localhost:55432/relay npm run migrate
+export DATABASE_URL=postgres://relay:relay_local@localhost:55432/relay
+npm run bootstrap        # applies migrations and prints the operator API key once
+MASTER_KEY=$(openssl rand -hex 32) npm run start:api
 ```
 
-The Compose credentials are exclusively for a database bound to the local development host. Copy `.env.example` for reference; no real secrets belong in Git. Generate a 32-byte hexadecimal master key before starting application services.
+The Compose credentials are exclusively for a database bound to the local development host. Copy `.env.example` for reference; no real secrets belong in Git. Keep the master key: it encrypts endpoint signing secrets, and losing it makes existing endpoints unusable.
+
+The API listens on port 3000 and serves its OpenAPI document at `/openapi.json` (also committed as [docs/openapi.json](docs/openapi.json); regenerate it with `npm run openapi`). All `/v1` routes expect `Authorization: Bearer <key>`:
+
+- the operator key creates projects and project keys;
+- a project `manage` key registers endpoints and reads events and deliveries;
+- a project `publish` key publishes events with an `Idempotency-Key` header.
 
 ## Verification
 
