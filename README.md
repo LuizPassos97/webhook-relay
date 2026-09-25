@@ -4,6 +4,12 @@ Self-hosted webhook delivery with a durable PostgreSQL queue, signed requests, r
 
 Your application publishes an event once; Webhook Relay stores it, fans it out to every subscribed endpoint, signs each request with HMAC-SHA256, retries transient failures with backoff and keeps a full attempt history you can inspect and replay.
 
+<p align="center">
+  <img src="docs/assets/demo.gif" width="900" alt="The failure demo: a healthy consumer succeeds, a flaky one succeeds on the third attempt, a slow one after a timeout, a broken one fails after five attempts and succeeds after a replay, and a tampered request is rejected with HTTP 401.">
+</p>
+
+<p align="center"><sub>Output of the <a href="docs/operations.md#failure-demo">failure demo</a> from a real run; the waiting time is shortened.</sub></p>
+
 ## Status
 
 Version 0.1 is feature-complete for the scope in the [design specification](docs/superpowers/specs/2026-09-25-webhook-relay-design.md): project-scoped API, transactional idempotent ingestion, leased delivery workers with crash recovery, outbound network protection, OpenTelemetry, retention, a local failure demo and verified multi-platform container images.
