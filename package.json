@@ -21,7 +21,8 @@
     "lint:fix": "eslint . --fix && prettier --write .",
     "openapi": "tsx scripts/openapi.ts",
     "start:demo-receiver": "tsx apps/demo-receiver/src/main.ts",
-    "demo": "tsx scripts/demo.ts"
+    "demo": "tsx scripts/demo.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@fastify/swagger": "^9.9.0",

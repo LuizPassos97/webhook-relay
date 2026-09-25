@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Commands, requests or configuration needed to reproduce it. Remove API keys and secrets.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node.js and PostgreSQL versions, and how you run the services.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Worker or API log lines with delivery and event IDs. Never include secrets or payloads.
+      render: text

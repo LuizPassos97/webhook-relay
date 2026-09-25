@@ -1,76 +1,155 @@
 # Webhook Relay
 
-Open source webhook delivery with durable PostgreSQL queues, signed requests, and explicit at-least-once semantics.
+Self-hosted webhook delivery with a durable PostgreSQL queue, signed requests, retries, replay and explicit at-least-once semantics.
 
-## Development status
+Your application publishes an event once; Webhook Relay stores it, fans it out to every subscribed endpoint, signs each request with HMAC-SHA256, retries transient failures with backoff and keeps a full attempt history you can inspect and replay.
 
-The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, transactional event ingestion with idempotent fan-out, an authenticated, project-scoped HTTP API, and a delivery worker with leases, retries and crash recovery, health checks, OpenTelemetry traces and metrics, data retention and a local failure demo. Container images and releases are under development; this revision is not a production release.
+## Status
+
+Version 0.1 is feature-complete for the scope in the [design specification](docs/superpowers/specs/2026-09-25-webhook-relay-design.md): project-scoped API, transactional idempotent ingestion, leased delivery workers with crash recovery, outbound network protection, OpenTelemetry, retention and a local failure demo. Container images and automated releases are not published yet.
 
 ## Architecture
 
-The API accepts events transactionally. A separate worker claims due deliveries using PostgreSQL leases. Consumers verify HMAC signatures and deduplicate stable event IDs. See the [approved specification](docs/superpowers/specs/2026-09-25-webhook-relay-design.md).
+```mermaid
+flowchart LR
+  publisher[Your application] -->|POST /v1/events| api[API]
+  api -->|event + deliveries<br/>one transaction| db[(PostgreSQL)]
+  worker[Worker] -->|claim with lease<br/>SKIP LOCKED| db
+  worker -->|signed POST| consumer[Consumer endpoint]
+  worker -->|record attempt<br/>if lease still owned| db
+```
 
-## Prerequisites
+- The **API** authenticates the caller, validates the event and stores it with one delivery per subscribed endpoint in a single transaction before answering `202`.
+- **Workers** claim due deliveries with `FOR UPDATE SKIP LOCKED` and a time-limited lease, send the request outside any transaction, and record the result only if they still own the lease.
+- **PostgreSQL** is both the system of record and the queue; there is no separate broker. See [ADR 0001](docs/adr/0001-postgresql-queue.md).
 
-- Node.js 24 LTS and npm
-- Docker Engine with Compose, or a compatible free container runtime
+## Quickstart
 
-## Development setup
+Requirements: Node.js 24 LTS, npm, Docker (or another free container runtime), `curl` and `jq`.
 
 ```sh
 npm ci
 docker compose up -d postgres
 export DATABASE_URL=postgres://relay:relay_local@localhost:55432/relay
-npm run bootstrap        # applies migrations and prints the operator API key once
-export MASTER_KEY=$(openssl rand -hex 32)
-npm run start:api        # HTTP API on port 3000
-npm run start:worker     # delivery worker, in another terminal with the same variables
+export MASTER_KEY=$(openssl rand -hex 32)   # keep it: it encrypts endpoint secrets
+npm run bootstrap                           # applies migrations, prints the operator key once
+npm run start:api                           # port 3000; run the worker in another terminal
+npm run start:worker                        # with the same environment variables
 ```
 
-The Compose credentials are exclusively for a database bound to the local development host. Copy `.env.example` for reference; no real secrets belong in Git. Keep the master key: it encrypts endpoint signing secrets, and losing it makes existing endpoints unusable.
+Then publish your first event. `WEBHOOK_URL` must be a public HTTPS URL you control (for example a request inspector); private and local addresses are rejected. For a fully local run, use the [failure demo](docs/operations.md#failure-demo) instead.
 
-The API listens on port 3000 and serves its OpenAPI document at `/openapi.json` (also committed as [docs/openapi.json](docs/openapi.json); regenerate it with `npm run openapi`). All `/v1` routes expect `Authorization: Bearer <key>`:
+<!-- quickstart:start -->
 
-- the operator key creates projects and project keys;
-- a project `manage` key registers endpoints and reads events and deliveries;
-- a project `publish` key publishes events with an `Idempotency-Key` header.
+```bash
+API_URL=${API_URL:-http://localhost:3000}
+auth() { printf 'Authorization: Bearer %s' "$1"; }
 
-See [docs/operations.md](docs/operations.md) for configuration, health checks, telemetry, retention and the **failure demo**, which walks through retries, timeouts, exhaustion, replay and signature rejection in about 20 seconds.
+# 1. Create a project and its keys (operator key).
+PROJECT_ID=$(curl -sf -X POST "$API_URL/v1/projects" -H "$(auth "$OPERATOR_KEY")" \
+  -H 'Content-Type: application/json' -d '{"name":"Quickstart"}' | jq -r .id)
+MANAGE_KEY=$(curl -sf -X POST "$API_URL/v1/projects/$PROJECT_ID/keys" -H "$(auth "$OPERATOR_KEY")" \
+  -H 'Content-Type: application/json' -d '{"permission":"manage"}' | jq -r .token)
+PUBLISH_KEY=$(curl -sf -X POST "$API_URL/v1/projects/$PROJECT_ID/keys" -H "$(auth "$OPERATOR_KEY")" \
+  -H 'Content-Type: application/json' -d '{"permission":"publish"}' | jq -r .token)
+
+# 2. Register an endpoint. The signing secret is shown only in this response.
+curl -sf -X POST "$API_URL/v1/endpoints" -H "$(auth "$MANAGE_KEY")" \
+  -H 'Content-Type: application/json' \
+  -d "{\"url\":\"$WEBHOOK_URL\",\"eventTypes\":[\"order.created\"]}" | jq '{id, secret}'
+
+# 3. Publish an event. Repeating the request with the same Idempotency-Key is safe.
+DELIVERY_ID=$(curl -sf -X POST "$API_URL/v1/events" -H "$(auth "$PUBLISH_KEY")" \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: order-1001' \
+  -d '{"type":"order.created","data":{"orderId":1001,"total":49.9}}' | jq -r '.deliveryIds[0]')
+
+# 4. Follow the delivery until the worker has recorded the attempt.
+for _ in $(seq 1 20); do
+  STATE=$(curl -sf "$API_URL/v1/deliveries/$DELIVERY_ID" -H "$(auth "$MANAGE_KEY")" | jq -r .state)
+  [ "$STATE" = pending ] || [ "$STATE" = processing ] || break
+  sleep 1
+done
+echo
+curl -sf "$API_URL/v1/deliveries/$DELIVERY_ID" -H "$(auth "$MANAGE_KEY")" |
+  jq '{state, attempts: [.attempts[] | {number, statusCode}]}'
+```
+
+<!-- quickstart:end -->
+
+The test suite runs this block against a real API and worker (`tests/e2e/quickstart.test.ts`), so it stays in sync with the code.
+
+## Receiving webhooks
+
+Each request is a `POST` with a JSON body `{"id", "type", "createdAt", "data"}` and these headers:
+
+| Header                  | Meaning                                                      |
+| ----------------------- | ------------------------------------------------------------ |
+| `X-Webhook-Id`          | Event ID; identical on every retry and replay                |
+| `X-Webhook-Delivery-Id` | Delivery ID (one per endpoint)                               |
+| `X-Webhook-Timestamp`   | Unix seconds when this attempt was signed                    |
+| `X-Webhook-Signature`   | Hex HMAC-SHA256 of `<timestamp>.<raw body>` with your secret |
+
+Verify the signature over the **raw** body before parsing it, reject timestamps older than five minutes, and deduplicate by event ID:
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+export function isAuthentic(rawBody, headers, secret, now = Date.now() / 1000) {
+  const timestamp = Number(headers['x-webhook-timestamp']);
+  const signature = String(headers['x-webhook-signature'] ?? '');
+  if (!Number.isInteger(timestamp) || Math.abs(now - timestamp) > 300) return false;
+  if (!/^[a-f0-9]{64}$/.test(signature)) return false;
+  const expected = createHmac('sha256', secret).update(`${timestamp}.`).update(rawBody).digest();
+  return timingSafeEqual(Buffer.from(signature, 'hex'), expected);
+}
+
+// After verifying: skip events you have already processed.
+// if (await alreadyProcessed(headers['x-webhook-id'])) return respond(200);
+```
+
+Answer with any `2xx` quickly and do the work asynchronously. Retries use the same event ID and body bytes, so storing processed IDs (for longer than the retry window of about three hours) makes processing idempotent.
 
 ## Delivery guarantees
 
-Delivery is **at least once**. Workers claim due deliveries with PostgreSQL `FOR UPDATE SKIP LOCKED` and a time-limited lease; only the current lease holder can record a result. If a worker dies after the receiver got the request but before the result was saved, the lease expires and another worker sends the same event again with the same `X-Webhook-Id` and `X-Webhook-Delivery-Id`, so receivers must deduplicate by event ID. Deliveries are not ordered.
+- **At least once, not exactly once.** A worker can crash after the consumer received a request but before the result was saved; another worker then sends it again. See [ADR 0002](docs/adr/0002-at-least-once.md).
+- **Retries:** network errors, timeouts, `408`, `429` and `5xx` are retried after about 1, 5, 30 and 120 minutes (±20% jitter), for at most 5 attempts. Other `4xx` responses and redirects fail immediately.
+- **Replay:** any finished delivery can be replayed through the API; it starts a new attempt cycle and keeps the earlier history.
+- **No ordering** across events or endpoints.
 
-Network errors, timeouts, `408`, `429` and `5xx` are retried after about 1, 5, 30 and 120 minutes (±20% jitter), for at most 5 attempts. Other `4xx` responses and redirects fail immediately. Interrupted attempts count toward the limit. A failed or succeeded delivery can be replayed through the API, which starts a new attempt cycle and keeps the earlier history.
+## Documentation
 
-Worker settings: `WORKER_CONCURRENCY` (default 4), `DELIVERY_TIMEOUT_MS` (default 5000), `LEASE_MS` (default 30000, at least twice the timeout) and `WORKER_POLL_MS` (default 1000). On `SIGTERM` the worker stops claiming and waits for in-flight requests before exiting.
+- [Operations](docs/operations.md): configuration, health checks, telemetry, retention, backups, upgrades, the failure demo and troubleshooting.
+- [Security](docs/security.md): threat model, trust boundaries and known limitations.
+- [Benchmarks](docs/benchmarks.md): method and measured results.
+- [OpenAPI](docs/openapi.json): the API contract, also served at `/openapi.json`.
+- Architecture decisions: [PostgreSQL as the queue](docs/adr/0001-postgresql-queue.md), [at-least-once delivery](docs/adr/0002-at-least-once.md).
 
-## Verification
+## Development
 
 ```sh
-npm test
+npm run lint            # ESLint with type-aware rules and Prettier formatting check
 npm run typecheck
-npm run lint
 npm run build
-npm run test:coverage
+npm test                # requires the Compose PostgreSQL on port 55432
+npm run test:coverage   # fails below 85% lines or 80% branches
 ```
 
-`npm run lint` runs ESLint with type-aware rules and checks formatting with Prettier. Run `npm run lint:fix` to apply automatic fixes and formatting.
+Integration tests create and drop their own temporary databases on the local PostgreSQL; set `TEST_DATABASE_URL` to use another server. Never point tests at an installation with real data. See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions.
 
-Integration tests use a disposable local database at port 55432; set `TEST_DATABASE_URL` to override. Never point tests at an installation containing real data.
+| Path                 | Contents                                                      |
+| -------------------- | ------------------------------------------------------------- |
+| `apps/api`           | Fastify API, authentication, routes and OpenAPI               |
+| `apps/worker`        | Claim loop, HTTP transport, health server                     |
+| `apps/demo-receiver` | Sample consumer for the local demo                            |
+| `packages/core`      | Configuration, security primitives, retry policy, telemetry   |
+| `packages/db`        | Migrations, transactions and queries                          |
+| `scripts`            | Bootstrap, migrations, OpenAPI generation, demo and benchmark |
+| `tests`              | Unit, integration (real PostgreSQL) and end-to-end tests      |
 
-## Repository layout
+## Cost
 
-- `apps/`: API, worker and demo receiver
-- `packages/core/`: configuration and domain policy
-- `packages/db/`: PostgreSQL transactions and migrations
-- `tests/`: unit, integration and end-to-end tests
-- `docs/`: specification, design decisions and operational guides
-
-## Cost and distribution
-
-Development and local execution require no paid service. Public container releases will be distributed through GHCR using standard GitHub Actions runners. No hosted production service is provided.
+Development, tests and the demo need no paid service, account or credit card. No hosted instance is provided: you run it on your own infrastructure.
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](LICENSE)
