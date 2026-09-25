@@ -1,9 +1,16 @@
+import { SpanKind, SpanStatusCode } from '@opentelemetry/api';
 import type { Pool } from 'pg';
 import type { Config } from '../../../packages/core/src/config.js';
 import type { Resolver } from '../../../packages/core/src/destination-policy.js';
 import { errorMessage, type Logger } from '../../../packages/core/src/logger.js';
 import { decideNextStep } from '../../../packages/core/src/retry-policy.js';
 import { decryptSecret } from '../../../packages/core/src/secrets.js';
+import {
+  contextFromTraceParent,
+  createDeliveryMetrics,
+  tracer,
+  type DeliveryMetrics,
+} from '../../../packages/core/src/telemetry.js';
 import {
   claimDeliveries,
   finishAttempt,
@@ -18,9 +25,13 @@ export interface WorkerDependencies {
   logger: Logger;
   random?: () => number;
   resolver?: Resolver;
+  /** Defaults to instruments on the global meter provider. */
+  metrics?: DeliveryMetrics;
 }
 
 export interface WorkerHandle {
+  /** False once shutdown has started; used by the readiness probe. */
+  isAcceptingWork(): boolean;
   /** Stops claiming new work and waits for in-flight deliveries to finish. */
   stop(): Promise<void>;
 }
@@ -36,12 +47,29 @@ export async function processClaim(
   deps: WorkerDependencies,
   claim: ClaimedDelivery,
 ): Promise<void> {
+  const metrics = deps.metrics ?? createDeliveryMetrics();
   const context = {
     deliveryId: claim.id,
     eventId: claim.eventId,
     cycle: claim.cycle,
     attempt: claim.attemptNumber,
   };
+
+  // Child of the publishing request's span, so one trace shows the request and every attempt.
+  const span = tracer().startSpan(
+    'webhook.deliver',
+    {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        'webhook.delivery.id': claim.id,
+        'webhook.event.id': claim.eventId,
+        'webhook.attempt.number': claim.attemptNumber,
+        'webhook.attempt.cycle': claim.cycle,
+      },
+    },
+    contextFromTraceParent(claim.traceParent),
+  );
+  metrics.inFlight.add(1);
 
   try {
     const outcome = await sendWebhook({
@@ -62,6 +90,18 @@ export async function processClaim(
     });
     const recorded = await finishAttempt(deps.pool, claim, outcome, next);
 
+    const labels = {
+      'webhook.attempt.outcome': outcome.kind,
+      'webhook.delivery.next_state': next.state,
+    };
+    metrics.attempts.add(1, labels);
+    metrics.attemptDuration.record(outcome.durationMs, { 'webhook.attempt.outcome': outcome.kind });
+
+    span.setAttributes(labels);
+    if (outcome.status !== undefined)
+      span.setAttribute('http.response.status_code', outcome.status);
+    if (next.state !== 'succeeded') span.setStatus({ code: SpanStatusCode.ERROR });
+
     deps.logger.info('Delivery attempt finished', {
       ...context,
       outcome: outcome.kind,
@@ -72,18 +112,23 @@ export async function processClaim(
       recorded,
     });
   } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: 'Unexpected delivery error' });
     deps.logger.error('Delivery attempt failed unexpectedly', {
       ...context,
       error: errorMessage(error),
     });
+  } finally {
+    metrics.inFlight.add(-1);
+    span.end();
   }
 }
 
 /** Runs one recovery-claim-send cycle and waits for it to finish. Returns the number claimed. */
 export async function runBatch(deps: WorkerDependencies): Promise<number> {
+  const withMetrics = { ...deps, metrics: deps.metrics ?? createDeliveryMetrics() };
   await recoverExpiredLeases(deps.pool, deps.config.maxAttempts);
   const claims = await claimDeliveries(deps.pool, deps.config.concurrency, deps.config.leaseMs);
-  await Promise.all(claims.map((claim) => processClaim(deps, claim)));
+  await Promise.all(claims.map((claim) => processClaim(withMetrics, claim)));
   return claims.length;
 }
 
@@ -94,7 +139,8 @@ export async function runBatch(deps: WorkerDependencies): Promise<number> {
  * so one slow destination does not hold back the others. HTTP requests are async I/O,
  * so a single process handles them concurrently without worker threads.
  */
-export function startWorker(deps: WorkerDependencies): WorkerHandle {
+export function startWorker(options: WorkerDependencies): WorkerHandle {
+  const deps = { ...options, metrics: options.metrics ?? createDeliveryMetrics() };
   const { concurrency, leaseMs, pollIntervalMs } = deps.config;
   const inFlight = new Set<Promise<void>>();
   const shutdown = new AbortController();
@@ -147,6 +193,7 @@ export function startWorker(deps: WorkerDependencies): WorkerHandle {
   })();
 
   return {
+    isAcceptingWork: () => !shutdown.signal.aborted,
     async stop() {
       shutdown.abort();
       wakeUp?.();

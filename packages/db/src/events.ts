@@ -29,6 +29,7 @@ export async function publishEvent(
   projectId: string,
   idempotencyKey: string,
   input: EventInput,
+  options: { traceParent?: string } = {},
 ): Promise<PublishedEvent> {
   validateIdempotencyKey(idempotencyKey);
   validateEventInput(input);
@@ -38,10 +39,10 @@ export async function publishEvent(
   const body = buildEnvelope({ id, type: input.type, data: input.data, createdAt: new Date() });
 
   const inserted = await client.query(
-    `INSERT INTO events (id, project_id, idempotency_key, content_hash, type, body)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO events (id, project_id, idempotency_key, content_hash, type, body, trace_parent)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (project_id, idempotency_key) DO NOTHING`,
-    [id, projectId, idempotencyKey, hash, input.type, body],
+    [id, projectId, idempotencyKey, hash, input.type, body, options.traceParent ?? null],
   );
 
   if (inserted.rowCount === 1) {

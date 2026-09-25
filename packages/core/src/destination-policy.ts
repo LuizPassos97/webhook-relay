@@ -22,8 +22,11 @@ export interface PinnedDestination {
   url: URL;
   /** Original hostname, kept for the Host header and TLS certificate verification. */
   hostname: string;
+  /** First validated address. */
   address: string;
   family: number;
+  /** Every resolved address; all of them passed the policy, so any may be used. */
+  addresses: Address[];
 }
 
 export const systemResolver: Resolver = (hostname) =>
@@ -59,8 +62,8 @@ export async function resolveDestination(
     throw new DestinationPolicyError('Non-public destination rejected');
   }
 
-  const [pinned] = addresses as [Address, ...Address[]];
-  return { url, hostname, address: pinned.address, family: pinned.family };
+  const [first] = addresses as [Address, ...Address[]];
+  return { url, hostname, address: first.address, family: first.family, addresses };
 }
 
 /**

@@ -4,7 +4,7 @@ Open source webhook delivery with durable PostgreSQL queues, signed requests, an
 
 ## Development status
 
-The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, transactional event ingestion with idempotent fan-out, an authenticated, project-scoped HTTP API, and a delivery worker with leases, retries and crash recovery. Observability, the local demo and container releases are under development; this revision is not a production release.
+The foundation provides validated configuration, transactional database migrations, API key hashing, secret encryption, request signing, an outbound HTTP transport that blocks non-public destinations, transactional event ingestion with idempotent fan-out, an authenticated, project-scoped HTTP API, and a delivery worker with leases, retries and crash recovery, health checks, OpenTelemetry traces and metrics, data retention and a local failure demo. Container images and releases are under development; this revision is not a production release.
 
 ## Architecture
 
@@ -34,6 +34,8 @@ The API listens on port 3000 and serves its OpenAPI document at `/openapi.json` 
 - the operator key creates projects and project keys;
 - a project `manage` key registers endpoints and reads events and deliveries;
 - a project `publish` key publishes events with an `Idempotency-Key` header.
+
+See [docs/operations.md](docs/operations.md) for configuration, health checks, telemetry, retention and the **failure demo**, which walks through retries, timeouts, exhaustion, replay and signature rejection in about 20 seconds.
 
 ## Delivery guarantees
 

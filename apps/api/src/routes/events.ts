@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { notFound } from '../../../../packages/core/src/errors.js';
 import { MAX_EVENT_DATA_BYTES, type EventInput } from '../../../../packages/core/src/events.js';
 import { getEvent, publishEvent } from '../../../../packages/db/src/events.js';
+import { formatTraceParent } from '../../../../packages/core/src/telemetry.js';
 import { withTransaction } from '../../../../packages/db/src/pool.js';
 import type { ApiDependencies } from '../app.js';
 import { projectOf, requirePermission } from '../auth.js';
@@ -22,9 +23,11 @@ export function eventRoutes(app: FastifyInstance, deps: ApiDependencies): void {
     async (request, reply) => {
       const projectId = projectOf(request);
       const idempotencyKey = request.headers['idempotency-key'];
+      // Stored with the event so the worker's delivery spans join this request's trace.
+      const traceParent = request.span ? formatTraceParent(request.span) : undefined;
 
       const published = await withTransaction(deps.pool, (client) =>
-        publishEvent(client, projectId, idempotencyKey, request.body),
+        publishEvent(client, projectId, idempotencyKey, request.body, { traceParent }),
       );
       return reply.code(202).send(published);
     },
