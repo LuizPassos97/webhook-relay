@@ -1,6 +1,6 @@
 # Operations
 
-This guide covers running Webhook Relay locally or on your own server: processes, configuration, health checks, telemetry, data retention and the failure demo.
+This guide covers running Webhook Relay locally or on your own server: container installation, processes, configuration, health checks, telemetry, data retention, backups, upgrades and the failure demo.
 
 ## Processes
 
@@ -13,6 +13,33 @@ This guide covers running Webhook Relay locally or on your own server: processes
 Run database migrations before starting new versions: `npm run migrate` (or `npm run bootstrap` on a new installation, which also prints the operator key once). You can run several API and worker processes against the same database; the queue, rate limits and retention are coordinated through PostgreSQL.
 
 Both the API and the worker stop cleanly on `SIGTERM`: the API finishes in-flight requests, and the worker stops claiming and waits for in-flight deliveries within 75% of the lease duration.
+
+## Container installation
+
+Each release publishes two images for `linux/amd64` and `linux/arm64`, built from the same Dockerfile: `ghcr.io/luizpassos97/webhook-relay-api` and `ghcr.io/luizpassos97/webhook-relay-worker`. Both run as the unprivileged `node` user, contain only runtime dependencies and define health checks. The [GitHub release](https://github.com/LuizPassos97/webhook-relay/releases) lists the image digests.
+
+[`deploy/compose/compose.release.yaml`](../deploy/compose/compose.release.yaml) installs a release with persistent PostgreSQL storage and file-based secrets:
+
+```sh
+VERSION=0.1.0
+mkdir -p webhook-relay/secrets && cd webhook-relay
+curl -fsSLO "https://raw.githubusercontent.com/LuizPassos97/webhook-relay/v$VERSION/deploy/compose/compose.release.yaml"
+
+# Secrets: the directory stays private; the files must be readable by the container user.
+chmod 700 secrets
+openssl rand -hex 24 > secrets/postgres_password
+printf 'postgres://relay:%s@postgres:5432/relay' "$(cat secrets/postgres_password)" > secrets/database_url
+openssl rand -hex 32 > secrets/master_key
+chmod 444 secrets/*
+
+export WEBHOOK_RELAY_VERSION=$VERSION
+docker compose -f compose.release.yaml up -d --wait
+docker compose -f compose.release.yaml run --rm api node dist/scripts/bootstrap.js   # operator key, once
+```
+
+The API listens on `127.0.0.1:3000`; put a TLS-terminating reverse proxy in front of it (set `API_BIND_ADDRESS` and `API_PORT` to change the binding). Migrations run automatically in the `migrate` service before the API and worker start. To upgrade, back up the database, change `WEBHOOK_RELAY_VERSION` and run `up -d --wait` again.
+
+Scale workers with `docker compose -f compose.release.yaml up -d --scale worker=3`. Other settings from the configuration table can be added to the `environment` of the `api` and `worker` services.
 
 ## Configuration
 
@@ -95,7 +122,22 @@ Migrations only add backward-compatible changes within a minor version, so old a
 
 ## Failure demo
 
-The demo shows a successful delivery, retries after errors and a timeout, an exhausted delivery that succeeds after a replay, and a consumer rejecting a tampered request. With PostgreSQL running (`docker compose up -d postgres`):
+The demo shows a successful delivery, retries after errors and a timeout, an exhaustion that succeeds after a replay, and a consumer rejecting a tampered request.
+
+**With Docker only** (builds the images locally; no Node.js needed):
+
+```sh
+docker compose up -d --build --wait
+OPERATOR_KEY=$(docker compose run --rm api node dist/scripts/bootstrap.js | tail -1)
+docker compose run --rm -e OPERATOR_KEY="$OPERATOR_KEY" \
+  -e API_URL=http://api:3000 -e DEMO_RECEIVER_URL=http://demo-receiver:4000 \
+  api node dist/scripts/demo.js
+docker compose down --volumes   # when finished
+```
+
+The default `compose.yaml` uses development settings (a plain-HTTP demo receiver and short retries), generates its own master key in a volume, and is not meant for production.
+
+**With Node.js**, running the processes directly (PostgreSQL from `docker compose up -d postgres`):
 
 ```sh
 export DATABASE_URL=postgres://relay:relay_local@localhost:55432/relay

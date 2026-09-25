@@ -1,0 +1,68 @@
+# Production-style installation from published images, with persistent PostgreSQL storage
+# and credentials provided as files. Setup: docs/operations.md#container-installation
+#
+#   WEBHOOK_RELAY_VERSION=0.1.0 docker compose -f compose.release.yaml up -d --wait
+
+x-app: &app
+  init: true
+  restart: unless-stopped
+  environment: &app-environment
+    NODE_ENV: production
+    DATABASE_URL_FILE: /run/secrets/database_url
+    MASTER_KEY_FILE: /run/secrets/master_key
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  secrets: [database_url, master_key]
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_DB: relay
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U relay']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: ${WEBHOOK_RELAY_IMAGE_PREFIX:-ghcr.io/luizpassos97/webhook-relay}-api:${WEBHOOK_RELAY_VERSION:?Set WEBHOOK_RELAY_VERSION}
+    command: ['node', 'dist/scripts/migrate.js']
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck: { disable: true }
+
+  api:
+    <<: *app
+    image: ${WEBHOOK_RELAY_IMAGE_PREFIX:-ghcr.io/luizpassos97/webhook-relay}-api:${WEBHOOK_RELAY_VERSION:?Set WEBHOOK_RELAY_VERSION}
+    ports:
+      # Loopback by default: put a TLS-terminating proxy in front of the API.
+      - '${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-3000}:3000'
+    stop_grace_period: 15s
+
+  worker:
+    <<: *app
+    image: ${WEBHOOK_RELAY_IMAGE_PREFIX:-ghcr.io/luizpassos97/webhook-relay}-worker:${WEBHOOK_RELAY_VERSION:?Set WEBHOOK_RELAY_VERSION}
+    # Longer than the worker's drain deadline (75% of the default 30 s lease).
+    stop_grace_period: 30s
+
+secrets:
+  postgres_password:
+    file: ${WEBHOOK_RELAY_SECRETS_DIR:-./secrets}/postgres_password
+  database_url:
+    file: ${WEBHOOK_RELAY_SECRETS_DIR:-./secrets}/database_url
+  master_key:
+    file: ${WEBHOOK_RELAY_SECRETS_DIR:-./secrets}/master_key
+
+volumes:
+  postgres-data:

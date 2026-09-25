@@ -22,7 +22,8 @@
     "openapi": "tsx scripts/openapi.ts",
     "start:demo-receiver": "tsx apps/demo-receiver/src/main.ts",
     "demo": "tsx scripts/demo.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "smoke:release": "tsx scripts/smoke-release.ts"
   },
   "dependencies": {
     "@fastify/swagger": "^9.9.0",

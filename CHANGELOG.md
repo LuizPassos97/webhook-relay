@@ -12,3 +12,4 @@ All notable changes to this project are documented here. The format follows [Kee
 - HMAC-SHA256 request signing, encrypted endpoint secrets and outbound protection against private and reserved destinations, DNS rebinding and redirects.
 - Health checks, OpenTelemetry traces linking each publishing request to its delivery attempts, and delivery metrics.
 - Retention cleanup, a local failure demo with a sample receiver, a reproducible benchmark and operational documentation.
+- Non-root API and worker images for `linux/amd64` and `linux/arm64`, a production Compose file with file-based secrets, CI on every pull request and a release workflow that smoke tests the exact images before publishing them to GHCR.

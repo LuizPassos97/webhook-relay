@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { cpus, totalmem } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Pool } from 'pg';
+import { readDatabaseUrl } from '../packages/core/src/config.js';
 import { createPool } from '../packages/db/src/pool.js';
 
 export interface LatencySummary {
@@ -315,14 +316,13 @@ function formatReport(report: BenchmarkReport): string {
 
 async function main(): Promise<void> {
   const operatorKey = process.env.OPERATOR_KEY;
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!operatorKey || !databaseUrl) {
-    throw new Error('Set OPERATOR_KEY and DATABASE_URL (see docs/benchmarks.md)');
+  if (!operatorKey) {
+    throw new Error('Set OPERATOR_KEY (see docs/benchmarks.md)');
   }
 
   const number = (name: string, fallback: number) => Number(process.env[name] ?? fallback);
   const sink = await startSink(number('BENCHMARK_SINK_PORT', 4100));
-  const pool = createPool(databaseUrl);
+  const pool = createPool(readDatabaseUrl(process.env));
   try {
     const report = await runBenchmark({
       apiUrl: process.env.API_URL ?? 'http://localhost:3000',
