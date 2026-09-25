@@ -14,6 +14,8 @@ export interface Config {
   retentionDays: number;
   rateLimit: number;
   retryScale: number;
+  /** How long an idle worker waits before looking for due deliveries again. */
+  pollIntervalMs: number;
 }
 
 const MAX_ATTEMPTS = 5;
@@ -69,6 +71,7 @@ export function readConfig(env: NodeJS.ProcessEnv): Config {
     retentionDays: readInteger(env, 'RETENTION_DAYS', 30, 365),
     rateLimit: readInteger(env, 'RATE_LIMIT_PER_MINUTE', 120, 10000),
     retryScale,
+    pollIntervalMs: readInteger(env, 'WORKER_POLL_MS', 1000, 60000),
   };
 }
 

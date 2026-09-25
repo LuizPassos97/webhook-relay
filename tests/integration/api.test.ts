@@ -21,6 +21,7 @@ const config: Config = {
   retentionDays: 30,
   rateLimit: 10000,
   retryScale: 1,
+  pollIntervalMs: 1000,
 };
 
 const validEvent = { type: 'order.created', data: { orderId: 7 } };
