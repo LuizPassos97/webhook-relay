@@ -24,3 +24,19 @@ export function conflict(message: string): AppError {
 export function payloadTooLarge(message: string): AppError {
   return new AppError(413, 'payload_too_large', message);
 }
+
+export function unauthorized(): AppError {
+  return new AppError(401, 'unauthorized', 'A valid API key is required');
+}
+
+export function forbidden(): AppError {
+  return new AppError(403, 'forbidden', 'This API key does not allow the operation');
+}
+
+export function notFound(resource: string): AppError {
+  return new AppError(404, 'not_found', `${resource} not found`);
+}
+
+export function tooManyRequests(): AppError {
+  return new AppError(429, 'rate_limited', 'Rate limit exceeded');
+}

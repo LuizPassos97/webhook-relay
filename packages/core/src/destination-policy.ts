@@ -37,17 +37,9 @@ export async function resolveDestination(
   resolver: Resolver = systemResolver,
   demoOrigin?: string,
 ): Promise<PinnedDestination> {
-  const url = new URL(rawUrl);
-  const isDemo = demoOrigin !== undefined && url.origin === demoOrigin;
-
-  const hasCredentials = url.username !== '' || url.password !== '';
-  const allowedProtocol = url.protocol === 'https:' || (isDemo && url.protocol === 'http:');
-  if (hasCredentials || url.hash !== '' || !allowedProtocol) {
-    throw new Error('Destination rejected');
-  }
-
-  // URL keeps brackets around IPv6 literals, e.g. "[::1]".
-  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const url = validateDestinationUrl(rawUrl, demoOrigin);
+  const isDemo = isDemoOrigin(url, demoOrigin);
+  const hostname = unbracket(url.hostname);
   const addresses = isIP(hostname)
     ? [{ address: hostname, family: isIP(hostname) }]
     : await resolver(hostname);
@@ -61,6 +53,45 @@ export async function resolveDestination(
 
   const [pinned] = addresses as [Address, ...Address[]];
   return { url, hostname, address: pinned.address, family: pinned.family };
+}
+
+/**
+ * Checks everything about a destination URL that does not require DNS: scheme, embedded
+ * credentials, fragments and literal IP addresses. Used when an endpoint is registered;
+ * the full check, including DNS, is repeated by `resolveDestination` before every attempt.
+ */
+export function validateDestinationUrl(rawUrl: string, demoOrigin?: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error('Destination rejected');
+  }
+
+  const isDemo = isDemoOrigin(url, demoOrigin);
+  const hasCredentials = url.username !== '' || url.password !== '';
+  const allowedProtocol = url.protocol === 'https:' || (isDemo && url.protocol === 'http:');
+  if (hasCredentials || url.hash !== '' || !allowedProtocol) {
+    throw new Error('Destination rejected');
+  }
+
+  const hostname = unbracket(url.hostname);
+  if (!isDemo && isIP(hostname) !== 0 && !isPublicAddress(hostname)) {
+    throw new Error('Non-public destination rejected');
+  }
+  if (!isDemo && (hostname === 'localhost' || hostname.endsWith('.localhost'))) {
+    throw new Error('Non-public destination rejected');
+  }
+  return url;
+}
+
+function isDemoOrigin(url: URL, demoOrigin: string | undefined): boolean {
+  return demoOrigin !== undefined && url.origin === demoOrigin;
+}
+
+/** URL keeps brackets around IPv6 literals, e.g. "[::1]". */
+function unbracket(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, '');
 }
 
 function isPublicAddress(address: string): boolean {

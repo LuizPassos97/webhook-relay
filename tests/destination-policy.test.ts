@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { resolveDestination, type Resolver } from '../apps/worker/src/destination-policy.js';
+import {
+  resolveDestination,
+  validateDestinationUrl,
+  type Resolver,
+} from '../packages/core/src/destination-policy.js';
 
 /** Builds a fake DNS resolver that always returns the given IPv4 addresses. */
 function resolvesTo(...addresses: string[]): Resolver {
@@ -44,5 +48,26 @@ describe('resolveDestination', () => {
     await expect(
       resolveDestination('http://localhost:4001/hook', resolvesTo('127.0.0.1'), demoOrigin),
     ).rejects.toThrow();
+  });
+});
+
+describe('validateDestinationUrl', () => {
+  it.each([
+    'not a url',
+    'http://example.com/hook',
+    'https://user:secret@example.com/hook',
+    'https://10.0.0.1/hook',
+    'https://[fd00::1]/hook',
+    'https://localhost/hook',
+    'https://api.localhost/hook',
+  ])('rejects %s without a DNS lookup', (url) => {
+    expect(() => validateDestinationUrl(url)).toThrow();
+  });
+
+  it('accepts public HTTPS URLs and the configured demo origin', () => {
+    expect(validateDestinationUrl('https://example.com/hook').hostname).toBe('example.com');
+    expect(validateDestinationUrl('http://localhost:4000/hook', 'http://localhost:4000').port).toBe(
+      '4000',
+    );
   });
 });

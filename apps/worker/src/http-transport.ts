@@ -2,7 +2,11 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { LookupFunction } from 'node:net';
 import { sign } from '../../../packages/core/src/signatures.js';
-import { resolveDestination, type PinnedDestination, type Resolver } from './destination-policy.js';
+import {
+  resolveDestination,
+  type PinnedDestination,
+  type Resolver,
+} from '../../../packages/core/src/destination-policy.js';
 
 /** Maximum number of response body bytes kept for delivery diagnostics. */
 export const RESPONSE_EXCERPT_BYTES = 2048;
