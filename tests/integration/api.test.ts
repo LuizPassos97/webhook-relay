@@ -177,6 +177,14 @@ describe('operator routes', () => {
       const key = created.json<{ id: string; token: string }>();
       const url = `/v1/projects/${project.id}/keys/${key.id}`;
 
+      const active = await app.inject({
+        method: permission === 'publish' ? 'POST' : 'GET',
+        url: permission === 'publish' ? '/v1/events' : '/v1/endpoints',
+        headers: { ...bearer(key.token), 'idempotency-key': 'before-revocation' },
+        ...(permission === 'publish' ? { payload: validEvent } : {}),
+      });
+      expect(active.statusCode).toBe(permission === 'publish' ? 202 : 200);
+
       const revoked = await app.inject({ method: 'DELETE', url, headers: operatorHeaders });
       expect(revoked.statusCode).toBe(204);
       expect(revoked.body).toBe('');
