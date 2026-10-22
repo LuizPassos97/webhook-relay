@@ -132,6 +132,8 @@ Answer with any `2xx` quickly and do the work asynchronously. Retries use the sa
 
 - [Operations](docs/operations.md): configuration, health checks, telemetry, retention, backups, upgrades, the failure demo and troubleshooting.
 - [Security](docs/security.md): threat model, trust boundaries and known limitations.
+- [Key lifecycle](docs/key-lifecycle.md): project-key replacement, credential limitations and recovery strategy.
+- [Portfolio walkthrough](docs/portfolio-walkthrough.md): a five-minute failure demo, tradeoffs and interview discussion.
 - [Benchmarks](docs/benchmarks.md): method and measured results.
 - [OpenAPI](docs/openapi.json): the API contract, also served at `/openapi.json`.
 - Architecture decisions: [PostgreSQL as the queue](docs/adr/0001-postgresql-queue.md), [at-least-once delivery](docs/adr/0002-at-least-once.md).

@@ -109,7 +109,7 @@ Back up two things, separately:
 
 To restore, recreate the database from the backup, start the API and worker with the **same** master key, and run `npm run migrate` if the restored backup is older than the application version.
 
-If the master key is lost, stored endpoint secrets cannot be decrypted and deliveries to existing endpoints fail with `Delivery attempt failed unexpectedly`. Recovery: start with a new master key, recreate each endpoint through the API (which issues a new signing secret), and give the new secrets to the consumers. Events, attempt history and API keys are unaffected.
+If the master key is lost, stored endpoint secrets cannot be decrypted and deliveries to existing endpoints fail with `Delivery attempt failed unexpectedly`. A new master key and recreated endpoints can serve new traffic after provisioning consumers, but do not recover old secrets or move existing deliveries. Old subscriptions also remain active and can duplicate fanout. Events, attempt history and hashed API keys remain stored; decryption failures can exhaust delivery attempts. See [Key lifecycle](key-lifecycle.md#master-key-backups-and-recovery) before recovery or replacement; no in-place master-key rotation tool exists.
 
 ## Upgrades
 
