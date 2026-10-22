@@ -163,6 +163,42 @@ describe('authentication and authorization', () => {
 });
 
 describe('operator routes', () => {
+  it.each(['publish', 'manage'])(
+    'revokes a %s key through the API and rejects its next request',
+    async (permission) => {
+      const project = await createTestProject();
+      const created = await app.inject({
+        method: 'POST',
+        url: `/v1/projects/${project.id}/keys`,
+        headers: operatorHeaders,
+        payload: { permission },
+      });
+      expect(created.statusCode).toBe(201);
+      const key = created.json<{ id: string; token: string }>();
+      const url = `/v1/projects/${project.id}/keys/${key.id}`;
+
+      const revoked = await app.inject({ method: 'DELETE', url, headers: operatorHeaders });
+      expect(revoked.statusCode).toBe(204);
+      expect(revoked.body).toBe('');
+      const repeated = await app.inject({ method: 'DELETE', url, headers: operatorHeaders });
+      expect(repeated.statusCode).toBe(204);
+
+      const denied = await app.inject({
+        method: permission === 'publish' ? 'POST' : 'GET',
+        url: permission === 'publish' ? '/v1/events' : '/v1/endpoints',
+        headers: { ...bearer(key.token), 'idempotency-key': 'revoked-key' },
+        ...(permission === 'publish' ? { payload: validEvent } : {}),
+      });
+      expect(denied.statusCode).toBe(401);
+      const unaffected = await app.inject({
+        method: 'GET',
+        url: '/v1/endpoints',
+        headers: project.manageHeaders,
+      });
+      expect(unaffected.statusCode).toBe(200);
+    },
+  );
+
   it('returns 404 when issuing a key for a missing project', async () => {
     const response = await app.inject({
       method: 'POST',
