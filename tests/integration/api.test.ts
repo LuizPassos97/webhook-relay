@@ -163,6 +163,125 @@ describe('authentication and authorization', () => {
 });
 
 describe('operator routes', () => {
+  it.each(['publish', 'manage'])(
+    'revokes a %s key through the API and rejects its next request',
+    async (permission) => {
+      const project = await createTestProject();
+      const created = await app.inject({
+        method: 'POST',
+        url: `/v1/projects/${project.id}/keys`,
+        headers: operatorHeaders,
+        payload: { permission },
+      });
+      expect(created.statusCode).toBe(201);
+      const key = created.json<{ id: string; token: string }>();
+      const url = `/v1/projects/${project.id}/keys/${key.id}`;
+
+      const active = await app.inject({
+        method: permission === 'publish' ? 'POST' : 'GET',
+        url: permission === 'publish' ? '/v1/events' : '/v1/endpoints',
+        headers: { ...bearer(key.token), 'idempotency-key': 'before-revocation' },
+        ...(permission === 'publish' ? { payload: validEvent } : {}),
+      });
+      expect(active.statusCode).toBe(permission === 'publish' ? 202 : 200);
+
+      const revoked = await app.inject({ method: 'DELETE', url, headers: operatorHeaders });
+      expect(revoked.statusCode).toBe(204);
+      expect(revoked.body).toBe('');
+      const first = await pool.query<{ revoked_at: string }>(
+        'SELECT revoked_at::text FROM api_keys WHERE id = $1',
+        [key.id],
+      );
+      expect(first.rows[0]?.revoked_at).toBeTruthy();
+      const repeated = await app.inject({ method: 'DELETE', url, headers: operatorHeaders });
+      expect(repeated.statusCode).toBe(204);
+      const second = await pool.query<{ revoked_at: string }>(
+        'SELECT revoked_at::text FROM api_keys WHERE id = $1',
+        [key.id],
+      );
+      expect(second.rows[0]?.revoked_at).toBe(first.rows[0]?.revoked_at);
+
+      const denied = await app.inject({
+        method: permission === 'publish' ? 'POST' : 'GET',
+        url: permission === 'publish' ? '/v1/events' : '/v1/endpoints',
+        headers: { ...bearer(key.token), 'idempotency-key': 'revoked-key' },
+        ...(permission === 'publish' ? { payload: validEvent } : {}),
+      });
+      expect(denied.statusCode).toBe(401);
+      const unaffected = await app.inject({
+        method: 'GET',
+        url: '/v1/endpoints',
+        headers: project.manageHeaders,
+      });
+      expect(unaffected.statusCode).toBe(200);
+    },
+  );
+
+  it('restricts revocation to operators and validates both IDs', async () => {
+    const project = await createTestProject();
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/projects/${project.id}/keys`,
+      headers: operatorHeaders,
+      payload: { permission: 'publish' },
+    });
+    const key = created.json<{ id: string }>();
+    const url = `/v1/projects/${project.id}/keys/${key.id}`;
+    expect((await app.inject({ method: 'DELETE', url })).statusCode).toBe(401);
+    for (const headers of [project.publishHeaders, project.manageHeaders]) {
+      expect((await app.inject({ method: 'DELETE', url, headers })).statusCode).toBe(403);
+    }
+    for (const invalid of [
+      `/v1/projects/not-a-uuid/keys/${key.id}`,
+      `/v1/projects/${project.id}/keys/not-a-uuid`,
+    ]) {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: invalid,
+        headers: operatorHeaders,
+      });
+      expect(response.statusCode).toBe(400);
+    }
+    const active = await pool.query('SELECT 1 FROM api_keys WHERE id = $1 AND revoked_at IS NULL', [
+      key.id,
+    ]);
+    expect(active.rowCount).toBe(1);
+  });
+
+  it('does not revoke keys outside the requested project or operator keys', async () => {
+    const project = await createTestProject();
+    const other = await createTestProject();
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/projects/${other.id}/keys`,
+      headers: operatorHeaders,
+      payload: { permission: 'manage' },
+    });
+    const key = created.json<{ id: string; token: string }>();
+    const operator = await withTransaction(pool, (client) => createOperatorKey(client));
+    for (const keyId of [key.id, operator.id, '00000000-0000-4000-8000-000000000000']) {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/v1/projects/${project.id}/keys/${keyId}`,
+        headers: operatorHeaders,
+      });
+      expect(response.statusCode).toBe(404);
+    }
+    const stillActive = await app.inject({
+      method: 'GET',
+      url: '/v1/endpoints',
+      headers: bearer(key.token),
+    });
+    expect(stillActive.statusCode).toBe(200);
+    const operatorStillActive = await app.inject({
+      method: 'POST',
+      url: '/v1/projects',
+      headers: bearer(operator.token),
+      payload: { name: 'Operator preserved' },
+    });
+    expect(operatorStillActive.statusCode).toBe(201);
+  });
+
   it('returns 404 when issuing a key for a missing project', async () => {
     const response = await app.inject({
       method: 'POST',

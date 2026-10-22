@@ -6,7 +6,7 @@ This document describes what Webhook Relay protects, who it trusts, how each thr
 
 | Actor                        | Trust                                      | Can                                                                         |
 | ---------------------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
-| Operator (operator key)      | Full control of the installation           | Create projects and project keys                                            |
+| Operator (operator key)      | Full control of the installation           | Create projects, issue and revoke project keys                              |
 | Project `manage` key         | One project                                | Register endpoints, read events, deliveries and attempts, replay deliveries |
 | Project `publish` key        | One project                                | Publish events                                                              |
 | Consumer endpoints           | **Untrusted**: any URL a project registers | Receive signed requests; control response status, timing and body           |
@@ -33,6 +33,28 @@ Endpoint URLs are attacker-controlled input that makes the worker send requests 
 - Authorization headers, idempotency keys, event bodies and secrets are not logged. Telemetry contains IDs and outcomes only.
 - The master key can be loaded from a file (`MASTER_KEY_FILE`) so it does not have to sit in the environment.
 
+### Revoking a project API key
+
+An operator can revoke a `publish` or `manage` key by its project ID and key ID
+(the `id` returned when the key was issued; do not put the raw token in the URL):
+
+```sh
+curl -sS -X DELETE "$API_URL/v1/projects/$PROJECT_ID/keys/$KEY_ID" \
+  -H "Authorization: Bearer $OPERATOR_KEY"
+```
+
+The response is `204` with no body. Repeating the request for the same key returns
+`204` and preserves the original revocation time. A missing key, a key from a
+different project or an operator key returns `404`. Project keys cannot invoke
+this operation (`403`); missing or invalid credentials return `401`.
+
+Revocation is persisted in PostgreSQL and applies to subsequent authentication
+checks across API instances, with no process-local credential cache. Requests
+that already passed authentication are not cancelled, and accepted events and
+queued deliveries are not deleted. Other project keys remain usable. To replace
+a project key, issue a new one, update clients and revoke the old ID. This is not
+an atomic rotation protocol or a signing-secret rotation mechanism.
+
 ### Forged or replayed webhooks at the consumer
 
 - Each request is signed with HMAC-SHA256 over `<timestamp>.<exact body bytes>` using the endpoint secret.
@@ -52,7 +74,7 @@ Endpoint URLs are attacker-controlled input that makes the worker send requests 
 
 ## Known limitations
 
-- **No key revocation or rotation API.** Keys can be revoked by setting `api_keys.revoked_at` in the database. Endpoint secrets cannot be rotated without recreating the endpoint.
+- **No operator-key revocation API.** Operators can revoke project API keys, but operator keys still require an administrative database operation. Endpoint signing secrets cannot be rotated without recreating the endpoint.
 - **Single master key without rotation.** Losing it makes stored endpoint secrets unrecoverable; rotating it requires re-encrypting every endpoint secret, for which no tool exists yet. See [backups](operations.md#backups-and-master-key).
 - **The operator key is all-powerful** and there is no audit log for operator actions (replays are audited).
 - **Fixed-window rate limiting** can allow up to twice the limit across a window boundary.

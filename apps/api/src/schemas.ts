@@ -82,6 +82,20 @@ export const createKeySchema = {
   },
 } as const;
 
+export const revokeKeySchema = {
+  tags: ['projects'],
+  params: {
+    type: 'object',
+    properties: { id: uuid, keyId: uuid },
+    required: ['id', 'keyId'],
+    additionalProperties: false,
+  },
+  response: {
+    204: { type: 'null', description: 'Project key revoked (idempotent).' },
+    ...errorResponses,
+  },
+} as const;
+
 // Endpoints
 
 const endpointSummary = {
