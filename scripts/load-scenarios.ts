@@ -420,7 +420,7 @@ async function tenantReport(
   // cannot call those HTTP-accepted, nor silently exclude them from the DB denominator.
   for (const row of events.rows) {
     const known = tenant.publishes.get(row.idempotency_key);
-    if (known?.eventId !== row.id || known?.deliveryId !== row.delivery_id) {
+    if (known?.eventId !== row.id || known.deliveryId !== row.delivery_id) {
       throw new Error('Study accounting mismatch: unconfirmed or unknown committed publish');
     }
   }
