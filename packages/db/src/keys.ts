@@ -58,6 +58,21 @@ export async function createOperatorKey(client: PoolClient): Promise<IssuedKey> 
   return { id, projectId: null, permission: 'operator', token };
 }
 
+/** Revokes only a project key, preserving its first revocation time on retries. */
+export async function revokeProjectKey(
+  pool: Pool,
+  projectId: string,
+  keyId: string,
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now())
+     WHERE id = $1 AND project_id = $2 AND permission IN ('publish', 'manage')
+     RETURNING id`,
+    [keyId, projectId],
+  );
+  return result.rowCount === 1;
+}
+
 /**
  * Creates the first operator key of an installation.
  * Returns null when an active operator key already exists, so running the
