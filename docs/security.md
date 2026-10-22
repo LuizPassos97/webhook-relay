@@ -2,6 +2,8 @@
 
 This document describes what Webhook Relay protects, who it trusts, how each threat is handled and what it does not cover. To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
+For operational replacement and recovery procedures, see [Key lifecycle](key-lifecycle.md). For a short demonstration of failure handling and signature rejection, see the [Portfolio walkthrough](portfolio-walkthrough.md).
+
 ## Trust boundaries
 
 | Actor                        | Trust                                      | Can                                                                         |
@@ -74,7 +76,7 @@ an atomic rotation protocol or a signing-secret rotation mechanism.
 
 ## Known limitations
 
-- **No operator-key revocation API.** Operators can revoke project API keys, but operator keys still require an administrative database operation. Endpoint signing secrets cannot be rotated without recreating the endpoint.
+- **No operator-key revocation or recovery interface.** Operators can revoke project API keys, but bootstrap does not replace an active operator key. Endpoint signing secrets have no in-place rotation route; recreating an endpoint neither moves old deliveries nor disables the old subscription. See [Key lifecycle](key-lifecycle.md) for the operational gaps and future tooling requirements.
 - **Single master key without rotation.** Losing it makes stored endpoint secrets unrecoverable; rotating it requires re-encrypting every endpoint secret, for which no tool exists yet. See [backups](operations.md#backups-and-master-key).
 - **The operator key is all-powerful** and there is no audit log for operator actions (replays are audited).
 - **Fixed-window rate limiting** can allow up to twice the limit across a window boundary.
