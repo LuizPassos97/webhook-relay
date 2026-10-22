@@ -1,0 +1,63 @@
+name: Load study
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-study-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: ${{ matrix.scenario }} (run ${{ matrix.repetition }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        scenario: [sustained, retry, noisy-neighbor]
+        repetition: [1, 2, 3]
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: relay
+          POSTGRES_PASSWORD: relay_local
+          POSTGRES_DB: relay_load_study
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U relay"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://relay:relay_local@localhost:55432/relay_load_study
+      LOAD_STUDY_SCENARIO: ${{ matrix.scenario }}
+      LOAD_STUDY_REPETITION: ${{ matrix.repetition }}
+      LOAD_STUDY_OUTPUT: artifacts/load-study.json
+      LOAD_STUDY_COMMIT: ${{ github.sha }}
+      LOAD_STUDY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Measure isolated scenario
+        run: ./node_modules/.bin/tsx scripts/load-scenarios.ts
+      - name: Preserve measured report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: load-study-${{ matrix.scenario }}-${{ matrix.repetition }}
+          path: artifacts/load-study.json
+          if-no-files-found: error
+          retention-days: 14
