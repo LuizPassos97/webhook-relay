@@ -1,14 +1,28 @@
 import type { FastifyInstance } from 'fastify';
 import { notFound } from '../../../../packages/core/src/errors.js';
-import { createProjectKey, type ProjectPermission } from '../../../../packages/db/src/keys.js';
+import {
+  createProjectKey,
+  revokeProjectKey,
+  type ProjectPermission,
+} from '../../../../packages/db/src/keys.js';
 import { withTransaction } from '../../../../packages/db/src/pool.js';
 import { createProject, projectExists } from '../../../../packages/db/src/projects.js';
 import type { ApiDependencies } from '../app.js';
 import { requirePermission } from '../auth.js';
-import { createKeySchema, createProjectSchema } from '../schemas.js';
+import { createKeySchema, createProjectSchema, revokeKeySchema } from '../schemas.js';
 
 export function projectRoutes(app: FastifyInstance, deps: ApiDependencies): void {
   const operatorOnly = requirePermission(deps, 'operator');
+
+  app.delete<{ Params: { id: string; keyId: string } }>(
+    '/v1/projects/:id/keys/:keyId',
+    { schema: revokeKeySchema, onRequest: operatorOnly },
+    async (request, reply) => {
+      const { id, keyId } = request.params;
+      if (!(await revokeProjectKey(deps.pool, id, keyId))) throw notFound('Project key');
+      return reply.code(204).send();
+    },
+  );
 
   app.post<{ Body: { name: string } }>(
     '/v1/projects',
