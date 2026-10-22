@@ -420,7 +420,7 @@ async function tenantReport(
   // cannot call those HTTP-accepted, nor silently exclude them from the DB denominator.
   for (const row of events.rows) {
     const known = tenant.publishes.get(row.idempotency_key);
-    if (!known || known.eventId !== row.id || known.deliveryId !== row.delivery_id) {
+    if (known?.eventId !== row.id || known?.deliveryId !== row.delivery_id) {
       throw new Error('Study accounting mismatch: unconfirmed or unknown committed publish');
     }
   }
@@ -631,7 +631,7 @@ export async function runLoadScenario(options: LoadScenarioOptions): Promise<Loa
     const failedPhase = phases.find((phase) => phase.status === 'rejected');
     if (failedPhase) throw new Error('Study publishing phase failed', { cause: failedPhase.reason });
     const drainDeadline = performance.now() + configuration.settleTimeoutMs;
-    while (true) {
+    for (;;) {
       checkSampler();
       const pending = await options.pool.query<{ count: number }>(
         `SELECT count(*)::int AS count FROM deliveries
