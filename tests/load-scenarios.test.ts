@@ -272,4 +272,26 @@ describe('runLoadScenario', () => {
     const invalid = { ...optionsFor('sustained'), scenario: 'unknown' };
     await expect(runLoadScenario(invalid as LoadScenarioOptions)).rejects.toThrow(/scenario/);
   });
+
+  it.each([
+    { scenario: 'sustained' as const, durationMs: 300_000, publisherRate: 10_000 },
+    { scenario: 'noisy-neighbor' as const, durationMs: 300_000, noisyRate: 10_000 },
+    {
+      scenario: 'noisy-neighbor' as const,
+      noisyWarmupMs: 300_000,
+      publisherRate: 10_000,
+    },
+    { scenario: 'sustained' as const, durationMs: 60_000, publisherRate: 50, payloadBytes: 65_536 },
+  ])('rejects combined resource budgets before provisioning: $scenario', async (overrides) => {
+    const before = await database.pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM projects',
+    );
+    await expect(
+      runLoadScenario({ ...optionsFor(overrides.scenario), ...overrides }),
+    ).rejects.toThrow(/budget/);
+    const after = await database.pool.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM projects',
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
 });
