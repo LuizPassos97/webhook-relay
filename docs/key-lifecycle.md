@@ -4,12 +4,12 @@ Operational strategy for the current implementation, not a new rotation API. Use
 
 ## Implemented capabilities
 
-| Credential | Stored form | Available lifecycle operations |
-| ---------- | ----------- | ------------------------------ |
-| Project `publish` / `manage` API key | SHA-256 hash of a random `wr_` token | Operator issues a new key and revokes a project key by ID |
-| Installation operator API key | Same hashed-token format | Bootstrap issues the first key only; no supported replacement or revocation interface |
-| Endpoint signing secret | AES-256-GCM encrypted `whsec_` secret | Generated on endpoint creation; no update, rotation, deletion or disable route |
-| Installation master key | Supplied to API and workers, not stored in the database | Configuration via `MASTER_KEY` or `MASTER_KEY_FILE`; no in-place rotation tool |
+| Credential                           | Stored form                                             | Available lifecycle operations                                                        |
+| ------------------------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Project `publish` / `manage` API key | SHA-256 hash of a random `wr_` token                    | Operator issues a new key and revokes a project key by ID                             |
+| Installation operator API key        | Same hashed-token format                                | Bootstrap issues the first key only; no supported replacement or revocation interface |
+| Endpoint signing secret              | AES-256-GCM encrypted `whsec_` secret                   | Generated on endpoint creation; no update, rotation, deletion or disable route        |
+| Installation master key              | Supplied to API and workers, not stored in the database | Configuration via `MASTER_KEY` or `MASTER_KEY_FILE`; no in-place rotation tool        |
 
 API tokens and endpoint secrets are returned only at issuance. Record project ID, key ID, permission, owner and deployment references in an inventory; keep plaintext credentials only in an access-controlled secret store. There is no key-list API or plaintext-token recovery route. Permissions are exact, not hierarchical: an operator cannot substitute for `manage` or `publish` on project routes.
 

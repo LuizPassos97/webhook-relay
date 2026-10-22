@@ -49,14 +49,14 @@ The script creates a project, separate manage/publish keys, four subscribed endp
 
 Expected behavior from the runner and the existing operations guide, **not output collected by this document**:
 
-| Scenario | What to point out |
-| -------- | ----------------- |
-| Healthy | Succeeds with `200` |
-| Fails twice | Attempts `503, 503, 200`; transient failure is retried |
-| Times out once | `timeout`, then `200`; a deadline releases worker capacity |
-| Always fails | Five `503` attempts end in `failed`, not an infinite retry loop |
-| After fix and replay | Succeeds in cycle 2; earlier attempt history is retained |
-| Altered body | Consumer returns `401` because body and signature no longer match |
+| Scenario             | What to point out                                                 |
+| -------------------- | ----------------------------------------------------------------- |
+| Healthy              | Succeeds with `200`                                               |
+| Fails twice          | Attempts `503, 503, 200`; transient failure is retried            |
+| Times out once       | `timeout`, then `200`; a deadline releases worker capacity        |
+| Always fails         | Five `503` attempts end in `failed`, not an infinite retry loop   |
+| After fix and replay | Succeeds in cycle 2; earlier attempt history is retained          |
+| Altered body         | Consumer returns `401` because body and signature no longer match |
 
 The local configuration shortens retries; the roughly 20-second demo is not production retry timing or a performance benchmark. The runner waits for terminal states and exits nonzero if its assertions fail. If it fails, show the real error and use [troubleshooting](operations.md#troubleshooting); do not present expected output as an observed result.
 
@@ -79,14 +79,14 @@ The scripted demo exercises errors, a timeout, exhaustion, replay and a forged r
 
 ## 4:00–5:00 — Questions and honest evidence
 
-| Interview question | Answer to develop |
-| ------------------ | ----------------- |
-| “Why not call consumers inside the API request?” | Consumer outages/latency should not block durable acceptance; the queue decouples them. |
-| “What happens if two workers claim the same work?” | Row locking skips claimed candidates; leases allow recovery, while token-checked completion rejects stale owners. Duplicates can still occur across a crash boundary. |
-| “How do you prevent duplicate business effects?” | Durable publisher idempotency is project-scoped; receivers also need durable event-ID/business idempotency, including replay. |
-| “How would you scale it?” | Observe queue age, completion latency and database contention; tune bounded concurrency/add workers, then measure before changing architecture. |
-| “How do you rotate a leaked signing secret?” | There is no in-place route. Recreating an endpoint does not move old deliveries and overlapping subscriptions duplicate fanout; describe the limitations and incident choices explicitly. |
-| “What would you build next?” | Audited operator recovery and versioned secret lifecycle, with concurrency/recovery tests; separate these proposals from shipped behavior. |
+| Interview question                                 | Answer to develop                                                                                                                                                                         |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| “Why not call consumers inside the API request?”   | Consumer outages/latency should not block durable acceptance; the queue decouples them.                                                                                                   |
+| “What happens if two workers claim the same work?” | Row locking skips claimed candidates; leases allow recovery, while token-checked completion rejects stale owners. Duplicates can still occur across a crash boundary.                     |
+| “How do you prevent duplicate business effects?”   | Durable publisher idempotency is project-scoped; receivers also need durable event-ID/business idempotency, including replay.                                                             |
+| “How would you scale it?”                          | Observe queue age, completion latency and database contention; tune bounded concurrency/add workers, then measure before changing architecture.                                           |
+| “How do you rotate a leaked signing secret?”       | There is no in-place route. Recreating an endpoint does not move old deliveries and overlapping subscriptions duplicate fanout; describe the limitations and incident choices explicitly. |
+| “What would you build next?”                       | Audited operator recovery and versioned secret lifecycle, with concurrency/recovery tests; separate these proposals from shipped behavior.                                                |
 
 ### Performance evidence: pending runner benchmark
 
