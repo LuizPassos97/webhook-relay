@@ -18,7 +18,7 @@ describe('runLoadScenario', () => {
   });
 
   afterAll(async () => {
-    if (database) await database.drop();
+    await database.drop();
   });
 
   const optionsFor = (scenario: LoadScenarioOptions['scenario']): LoadScenarioOptions => ({

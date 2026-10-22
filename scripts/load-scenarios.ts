@@ -111,6 +111,5 @@ export interface LoadScenarioReport {
  */
 // eslint-disable-next-line @typescript-eslint/require-await -- Deliberate async RED-only stub.
 export async function runLoadScenario(options: LoadScenarioOptions): Promise<LoadScenarioReport> {
-  void options;
-  throw new Error('Load scenario not implemented');
+  throw new Error('Load scenario not implemented', { cause: options.scenario });
 }
